@@ -1,0 +1,93 @@
+"""LLM-facing DTOs — deliberately SHALLOW (DESIGN §5).
+
+Gemini's `responseSchema` accepts only a JSON-Schema subset: no `dict` with
+arbitrary keys, no self-reference, shallow nesting. Our domain artifacts
+(artifacts.py) use dicts and nested models because that's right for the domain —
+so the LLM speaks these flat DTOs and `nodes.py` maps them onto the artifacts.
+Rich validation happens in Pydantic AFTER parsing, never in the LLM schema.
+"""
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class GenreProfileDraft(BaseModel):
+    """L0 inferred from the user's freeform idea. Open vocabulary — no enum menu."""
+    audience: str
+    content_rating: str = Field(description="전연령 | 15+ (노골적 성적 묘사는 범위 밖)")
+    sub_genre: str
+    trope_checklist: list[str]
+    pov: str
+    tense: str
+    register_baseline: str
+    target_catharsis_cadence: int = Field(description="사이다가 최소 몇 화마다 터져야 하는가")
+    max_consecutive_frustration_beats: int
+    forbidden_anti_patterns: list[str]
+    inference_notes: str = Field(description="이 아이디어에서 장르를 이렇게 판단한 근거")
+
+
+class NorthStarDraft(BaseModel):
+    """L1 — the thin, stable spine."""
+    title: str = Field(description="키워드가 살아있는 한국 웹소설식 제목")
+    premise: str
+    core_conflict: str
+    protagonist_edge: str
+    central_twist: str
+    intended_ending: str
+    episode_engine: str = Field(description="100화 이상을 지탱할 반복 가능한 갈등 생성기")
+    power_system: str = Field(description="명확한 비용과 한계를 가진 능력/규칙 체계")
+    hard_rules: list[str]
+
+
+class CharacterDraft(BaseModel):
+    """Flattened CharacterCard + VoiceCard (dicts and deep nesting avoided)."""
+    name: str
+    is_main_cast: bool
+    immutable_descriptors: list[str] = Field(description="변하지 않는 외형/특징")
+    speech_register: str
+    honorific_pattern: str = Field(description="반말/존댓말 사용 양상")
+    speech_tics: list[str]
+    exemplar_lines: list[str] = Field(description="이 인물다운 대사 2~3개")
+    personality: str
+    goals: list[str]
+    secrets: list[str]
+    current_location: str
+    condition: str
+    power_level: str
+
+
+class GlossaryDraft(BaseModel):
+    term: str
+    canonical_form: str = Field(description="작품에서 고정할 한국어 표기")
+    notes: str
+
+
+class CanonInitDraft(BaseModel):
+    """Initial Canon + VoiceBible."""
+    characters: list[CharacterDraft]
+    hard_world_rules: list[str]
+    soft_world_rules: list[str]
+    glossary: list[GlossaryDraft]
+    voice_spec: str = Field(description="작품 전체의 문체 규격")
+    voice_exemplars: list[str] = Field(description="그 문체를 보여주는 예문 2~3개")
+
+
+class BeatDraft(BaseModel):
+    text: str
+    beat_type: str = Field(description="setup | escalation | payoff | frustration | reveal | cliffhanger")
+
+
+class SeedDraft(BaseModel):
+    description: str
+    magnitude: str = Field(description="major | minor")
+    due_by_ep: int = Field(description="몇 화까지 회수할 것인가 (0이면 미정)")
+
+
+class BeatSheetDraft(BaseModel):
+    """L3 — one episode's plan."""
+    opening_hook: str
+    beats: list[BeatDraft]
+    the_one_progression: str = Field(description="이 화에서 반드시 일어나는 단 하나의 진전")
+    closing_cliffhanger: str
+    entities_present: list[str]
+    seeds_to_plant: list[SeedDraft]
