@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>novel-agent 테스트 콘솔</title>
+<style>
+  :root{--bg:#12131a;--panel:#1a1c26;--line:#2b2e3d;--fg:#e7e9f0;--dim:#8d93a8;
+        --acc:#7aa2f7;--ok:#8ac97a;--warn:#e0af68;--bad:#f7768e}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",
+       "Malgun Gothic",sans-serif;background:var(--bg);color:var(--fg)}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;
+         align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:5}
+  h1{font-size:15px;margin:0;font-weight:600}
+  .wrap{display:grid;grid-template-columns:minmax(380px,1fr) minmax(420px,1.1fr);
+        gap:16px;padding:16px 20px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .panel h2{font-size:12px;margin:0 0 10px;color:var(--dim);letter-spacing:.09em;text-transform:uppercase}
+  button{background:var(--acc);color:#0d0f16;border:0;border-radius:7px;padding:8px 13px;
+         font-weight:700;cursor:pointer;font-size:13px}
+  button:disabled{opacity:.4;cursor:default}
+  button.ghost{background:transparent;color:var(--acc);border:1px solid var(--line);font-weight:600}
+  textarea,input,select{width:100%;background:#0f1119;color:var(--fg);border:1px solid var(--line);
+        border-radius:7px;padding:9px;font:13px/1.5 inherit}
+  textarea{resize:vertical}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+  .pill.ok{background:#20351f;color:var(--ok)} .pill.bad{background:#3a1f26;color:var(--bad)}
+  .pill.warn{background:#3a2f1c;color:var(--warn)} .pill.dim{background:#22252f;color:var(--dim)}
+  .score{font-size:30px;font-weight:800;line-height:1}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  td,th{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600}
+  pre.prose{white-space:pre-wrap;background:#0f1119;border:1px solid var(--line);border-radius:8px;
+        padding:14px;max-height:560px;overflow:auto;font:14px/1.9 inherit}
+  .q{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:9px;background:#0f1119}
+  .q .t{font-weight:700;font-size:12px;color:var(--acc);margin-bottom:3px}
+  .q .why{color:var(--dim);font-size:11px;margin:4px 0 7px}
+  .opt{display:block;padding:3px 0;cursor:pointer;font-size:13px}
+  .cand{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:9px;background:#0f1119}
+  .cand.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .cand h3{margin:0 0 6px;font-size:14px}
+  .k{color:var(--dim);font-size:11px}
+  #log{font-family:ui-monospace,monospace;font-size:11px;color:var(--dim);max-height:120px;overflow:auto}
+  .steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .steps span{font-size:11px;padding:3px 9px;border-radius:999px;background:#22252f;color:var(--dim)}
+  .steps span.on{background:var(--acc);color:#0d0f16;font-weight:700}
+</style>
+</head>
+<body>
+<header>
+  <h1>novel-agent 테스트 콘솔</h1>
+  <span id="cfg" class="mono" style="color:var(--dim)">설정 로딩…</span>
+  <button class="ghost" onclick="health()">연결 테스트</button>
+  <span id="hp"></span>
+  <span style="flex:1"></span>
+  <span id="cost" class="pill dim">비용 —</span>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h2>1 · 아이디어</h2>
+      <div class="steps" id="steps"></div>
+      <textarea id="idea" rows="2" placeholder="예) 네오 조선의 흑인 홍길동, 코믹"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button onclick="createProject()">프로젝트 생성</button>
+        <select id="projects" onchange="loadProject(this.value)" style="flex:1"></select>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>2 · 설정 인터뷰 <span class="k">— 작가가 세계를 정합니다</span></h2>
+      <button onclick="interview()" id="bInt" disabled>질문 생성</button>
+      <div id="qs" style="margin-top:10px"></div>
+      <button onclick="saveAnswers()" id="bAns" disabled style="display:none">답변 저장</button>
+    </div>
+
+    <div class="panel">
+      <h2>3 · 장르 + 전제 후보</h2>
+      <button onclick="setup()" id="bSetup" disabled>L0 추론 + 후보 3개 생성</button>
+      <div id="profile" style="margin-top:10px"></div>
+      <div id="cands" style="margin-top:10px"></div>
+      <button onclick="lock()" id="bLock" disabled style="display:none">선택한 전제로 캐논 생성</button>
+      <div id="canon" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>4 · 에피소드 집필</h2>
+      <div class="row">
+        <label class="k">화 <input id="epNo" type="number" value="1" min="1" style="width:64px"></label>
+        <label class="k"><input id="doRev" type="checkbox" checked> 수정 루프</label>
+        <label class="k">반복 <input id="iters" type="number" value="2" min="1" max="4" style="width:56px"></label>
+        <button onclick="writeEpisode()" id="bEp" disabled>집필</button>
+      </div>
+      <div id="epMeta" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>문체 린트 <span class="k">— 토큰 0원, 아무 원고나 붙여넣기</span></h2>
+      <textarea id="lintText" rows="4" placeholder="원고를 붙여넣고 점수를 확인하세요"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="ghost" onclick="lintText()">린트 실행</button>
+        <span class="k">목표 분량 <input id="lintTarget" type="number" value="5200" style="width:76px"></span>
+      </div>
+      <div id="lintOut" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel"><h2>로그</h2><div id="log"></div></div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>결과 원고</h2>
+      <div id="epScore"></div>
+      <pre class="prose" id="prose">아직 원고가 없습니다.</pre>
+    </div>
+    <div class="panel"><h2>비트시트</h2><div id="beats" class="mono">—</div></div>
+  </div>
+</div>
+
+<script>
+let PID = null, QUESTIONS = [], PICK = 1;
+const $ = s => document.querySelector(s);
+const log = m => { const d=$('#log'); d.innerHTML = `<div>${new Date().toLocaleTimeString()} ${m}</div>` + d.innerHTML; };
+const esc = s => (s??'').toString().replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+async function api(path, method='GET', body){
+  const r = await fetch(path, {method, headers:{'Content-Type':'application/json'},
+                              body: body?JSON.stringify(body):undefined});
+  const j = await r.json().catch(()=>({detail:'invalid json'}));
+  if(!r.ok) throw new Error(j.detail || r.status);
+  return j;
+}
+function busy(id, on, label){ const b=$(id); if(!b) return; b.disabled=on;
+  if(label){ b.dataset.l = b.dataset.l||b.textContent; b.textContent = on ? '실행 중…' : b.dataset.l; } }
+
+// ── config / health ──────────────────────────────────────────────────────────
+async function loadConfig(){
+  const c = await api('/api/config');
+  $('#cfg').textContent = `${c.provider} · ${c.model} · key ${c.key_present ? c.key_hint : '없음 ⚠️'}`;
+  if(!c.key_present) log('⚠️ .env 의 NOVEL_LLM_API_KEY 가 비어 있습니다');
+}
+async function health(){
+  $('#hp').innerHTML = '<span class="pill dim">확인 중…</span>';
+  try { const h = await api('/api/health','POST');
+        $('#hp').innerHTML = `<span class="pill ok">OK · ${esc(h.model)}</span>`; log('연결 정상: '+esc(h.reply)); }
+  catch(e){ $('#hp').innerHTML = `<span class="pill bad">실패</span>`; log('연결 실패: '+esc(e.message)); }
+}
+
+// ── projects ─────────────────────────────────────────────────────────────────
+async function refreshProjects(){
+  const ps = await api('/api/projects');
+  $('#projects').innerHTML = '<option value="">— 기존 프로젝트 —</option>' +
+    ps.map(p=>`<option value="${p.id}" ${p.id===PID?'selected':''}>${esc(p.idea.slice(0,34))} [${p.step}]</option>`).join('');
+}
+async function createProject(){
+  const idea = $('#idea').value.trim();
+  if(!idea) return log('아이디어를 입력하세요');
+  const st = await api('/api/projects','POST',{idea});
+  applyState(st); await refreshProjects(); log('프로젝트 생성 '+st.id);
+}
+async function loadProject(id){ if(!id) return; applyState(await api('/api/projects/'+id)); log('불러옴 '+id); }
+
+function applyState(st){
+  PID = st.id; $('#idea').value = st.idea;
+  const order = ['created','interviewed','answered','setup','locked','drafted'];
+  $('#steps').innerHTML = order.map(s=>`<span class="${s===st.step?'on':''}">${s}</span>`).join('');
+  $('#bInt').disabled = false; $('#bSetup').disabled = false;
+  $('#bEp').disabled = !(st.step==='locked'||st.step==='drafted');
+  $('#bLock').style.display = st.candidates ? '' : 'none';
+  $('#bLock').disabled = !st.candidates;
+  if(st.questions){ QUESTIONS = st.questions; renderQuestions(); }
+  if(st.profile) renderProfile(st);
+  if(st.candidates) renderCandidates(st.candidates, st.picked||1);
+  if(st.canon) renderCanon(st);
+  renderCost(st.usage);
+}
+function renderCost(u){
+  if(!u || !u.calls){ $('#cost').textContent='비용 —'; return; }
+  $('#cost').textContent = `${u.calls} calls · ₩${u.krw}`;
+}
+
+// ── interview ────────────────────────────────────────────────────────────────
+async function interview(){
+  busy('#bInt', true, 1);
+  try { const st = await api(`/api/projects/${PID}/interview`,'POST'); applyState(st); log('질문 '+QUESTIONS.length+'개'); }
+  catch(e){ log('실패: '+esc(e.message)); } finally { busy('#bInt', false, 1); }
+}
+function renderQuestions(){
+  $('#qs').innerHTML = QUESTIONS.map((q,i)=>`
+    <div class="q"><div class="t">${i+1}. ${esc(q.topic)}</div>
+      <div>${esc(q.question)}</div><div class="why">${esc(q.why_it_matters)}</div>
+      ${q.options.map(o=>`<label class="opt"><input type="radio" name="q${i}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}
+      <label class="opt"><input type="radio" name="q${i}" value="__d" checked> 기본값: ${esc(q.default)}</label>
+      <input placeholder="직접 입력(선택)" data-free="${i}" style="margin-top:6px">
+    </div>`).join('');
+  $('#bAns').style.display=''; $('#bAns').disabled=false;
+}
+async function saveAnswers(){
+  const answers = QUESTIONS.map((q,i)=>{
+    const free = document.querySelector(`[data-free="${i}"]`).value.trim();
+    const sel = document.querySelector(`input[name="q${i}"]:checked`);
+    let a = free || (sel && sel.value!=='__d' ? sel.value : q.default);
+    return {topic:q.topic, question:q.question, answer:a};
+  });
+  applyState(await api(`/api/projects/${PID}/answers`,'POST',{answers}));
+  log('답변 저장 — 이후 모든 설정이 이 답변을 따릅니다');
+}
+
+// ── setup / lock ─────────────────────────────────────────────────────────────
+async function setup(){
+  busy('#bSetup', true, 1);
+  try { applyState(await api(`/api/projects/${PID}/setup`,'POST')); log('L0 + 후보 생성 완료'); }
+  catch(e){ log('실패: '+esc(e.message)); } finally { busy('#bSetup', false, 1); }
+}
+function renderProfile(st){
+  const p = st.profile;
+  $('#profile').innerHTML = `<table>
+    <tr><th>장르</th><td>${esc(p.sub_genre)}</td></tr>
+    <tr><th>대상/등급</th><td>${esc(p.audience)} · ${esc(p.content_rating)}</td></tr>
+    <tr><th>시점/시제</th><td>${esc(p.pov)} / ${esc(p.tense)}</td></tr>
+    <tr><th>사이다 주기</th><td>${p.target_catharsis_cadence}화 이내 · 최대 연속 고구마 ${p.max_consecutive_frustration_beats}</td></tr>
+    <tr><th>금지</th><td>${esc((p.forbidden_anti_patterns||[]).join(', '))}</td></tr></table>`;
+}
+function renderCandidates(cs, picked){
+  PICK = picked;
+  $('#cands').innerHTML = cs.map((c,i)=>`
+    <div class="cand ${i+1===PICK?'sel':''}" onclick="pick(${i+1})">
+      <h3>${i+1}. ${esc(c.title)}</h3>
+      <div>${esc(c.premise)}</div>
+      <div class="k" style="margin-top:6px">엔진: ${esc((c.episode_engine||'').slice(0,180))}</div>
+    </div>`).join('');
+}
+function pick(i){ PICK=i; document.querySelectorAll('.cand').forEach((e,n)=>e.classList.toggle('sel',n+1===i)); }
+async function lock(){
+  busy('#bLock', true, 1);
+  try { applyState(await api(`/api/projects/${PID}/lock`,'POST',{pick:PICK})); log('전제 확정 + 캐논 생성'); }
+  catch(e){ log('실패: '+esc(e.message)); } finally { busy('#bLock', false, 1); }
+}
+function renderCanon(st){
+  const c = st.canon, v = st.voice;
+  const chars = Object.values(c.characters||{}).map(x=>
+    `<tr><th>${x.is_main_cast?'주요':'조연'} ${esc(x.name)}</th><td>${esc((x.immutable_descriptors||[]).join(', '))}<br>
+     <span class="k">${esc(x.voice.speech_register)} / ${esc(x.voice.honorific_pattern)}</span></td></tr>`).join('');
+  $('#canon').innerHTML = `<table>${chars}
+    <tr><th>용어집</th><td>${esc((c.glossary||[]).map(g=>g.canonical_form).join(', '))} <span class="k">(${(c.glossary||[]).length}개)</span></td></tr>
+    <tr><th>문체</th><td>${esc((v.spec||'').slice(0,240))}</td></tr></table>`;
+}
+
+// ── episode ──────────────────────────────────────────────────────────────────
+async function writeEpisode(){
+  busy('#bEp', true, 1); $('#prose').textContent = '집필 중… (수정 루프까지 수 분 소요)';
+  try {
+    const r = await api(`/api/projects/${PID}/episode`,'POST',{
+      episode:+$('#epNo').value, revise:$('#doRev').checked, iterations:+$('#iters').value});
+    $('#prose').textContent = r.prose;
+    const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
+    $('#epScore').innerHTML =
+      `<div class="row" style="margin-bottom:10px">
+         <span class="score" style="color:var(--${cls==='ok'?'ok':cls==='warn'?'warn':'bad'})">${r.score}</span>
+         <span class="k">/100 문체</span>
+         <span class="pill ${cls}">${r.passed?'통과':'미통과'}</span>
+         <span class="pill dim">초고 ${r.first_score} → ${r.score}</span>
+         <span class="pill dim">${r.chars}자 / 목표 ${r.target}</span>
+         <span class="pill dim">수정 ${r.iterations}회</span>
+       </div>` + violTable(r.violations);
+    $('#beats').innerHTML = beatHtml(r.beat_sheet);
+    renderCost(r.usage);
+    log(`집필 완료 ${r.chars}자 · ${r.first_score}→${r.score}점`);
+    if(r.fact_requests?.length) log('FACT 요청: '+esc(r.fact_requests.join(' / ')));
+  } catch(e){ $('#prose').textContent=''; log('실패: '+esc(e.message)); }
+  finally { busy('#bEp', false, 1); }
+}
+function violTable(vs){
+  if(!vs || !vs.length) return '<span class="pill ok">위반 없음</span>';
+  return `<table><tr><th>규칙</th><th>등급</th><th>현재</th><th>한도</th></tr>` +
+    vs.map(v=>`<tr><td>${esc(v.rule)}${v.evidence?`<br><span class="k">${esc(v.evidence)}</span>`:''}</td>
+      <td><span class="pill ${v.severity==='blocker'?'bad':v.severity==='major'?'warn':'dim'}">${v.severity}</span></td>
+      <td>${v.count}</td><td class="k">${esc(v.limit)}</td></tr>`).join('') + '</table>';
+}
+function beatHtml(b){
+  if(!b) return '—';
+  return `<div><b>훅</b> ${esc(b.opening_hook)}</div>
+    <ol style="padding-left:18px">${(b.beats||[]).map(x=>`<li>[${esc(x.beat_type)}] ${esc(x.text)}</li>`).join('')}</ol>
+    <div><b>진전</b> ${esc(b.the_one_progression)}</div>
+    <div><b>절단</b> ${esc(b.closing_cliffhanger)}</div>`;
+}
+
+// ── free lint ────────────────────────────────────────────────────────────────
+async function lintText(){
+  const text = $('#lintText').value;
+  if(!text.trim()) return log('원고를 붙여넣으세요');
+  const r = await api('/api/lint','POST',{text, target_chars:+$('#lintTarget').value});
+  const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
+  $('#lintOut').innerHTML = `<div class="row" style="margin-bottom:8px">
+      <span class="score" style="color:var(--${cls})">${r.score}</span><span class="k">/100 · ${r.chars}자</span></div>`
+      + violTable(r.violations);
+}
+
+loadConfig(); refreshProjects();
+</script>
+</body>
+</html>
