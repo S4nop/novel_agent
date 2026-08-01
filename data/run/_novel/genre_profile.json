@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "audience": "2030 남성향 및 대중",
+  "content_rating": "15+",
+  "sub_genre": "네오 조선 SF 코미디 활빈 액션",
+  "trope_checklist": [
+    "사이보그/네오 조선 세계관",
+    "의적 활빈당 레지스탕스",
+    "서얼 및 인종 차별 풍자",
+    "하이테크 도술 및 압도적 무력",
+    "유쾌한 소동극과 착각계"
+  ],
+  "episode_length_target": 5200,
+  "pov": "1인칭 주인공 시점",
+  "tense": "과거제",
+  "register_baseline": "위트 있고 경쾌한 해학적 구어체",
+  "target_catharsis_cadence": 3,
+  "max_consecutive_frustration_beats": 1,
+  "forbidden_anti_patterns": [
+    "지나치게 피폐하고 어두운 전개",
+    "주인공의 갑작스러운 무능화 및 고구마 장기화",
+    "인종/신분 차별을 진지한 신파로 풀어내는 전개",
+    "코믹 톤앤매너를 깨뜨리는 잔혹한 고문 및 절망 묘사"
+  ]
+}

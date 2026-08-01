@@ -1,0 +1,60 @@
+{
+  "version": 0,
+  "genre_profile_version": 1,
+  "characters": {
+    "서준혁": {
+      "name": "서준혁",
+      "aliases": [],
+      "is_main_cast": true,
+      "immutable_descriptors": [
+        "짧은 검은 머리",
+        "왼쪽 눈썹의 오래된 흉터",
+        "마른 체구"
+      ],
+      "voice": {
+        "speech_register": "건조하고 냉정, 감정을 삼키는 말투",
+        "honorific_pattern": "속마음은 반말, 타인에게는 짧은 존댓말",
+        "speech_tics": [
+          "…쯧",
+          "그래서, 결론은"
+        ],
+        "exemplar_lines": [
+          "이번엔 순서를 바꾼다.",
+          "알고 있다. 그래서 여기 있다."
+        ]
+      },
+      "personality": "냉정한 계산가지만 사람을 버리지 못한다",
+      "goals": [
+        "3일 뒤 첫 게이트를 독식한다"
+      ],
+      "secrets": [
+        "회귀자라는 사실",
+        "멸망의 시작이 사람의 배신이었다는 것"
+      ],
+      "status": "active",
+      "current_location": "서울, 낡은 원룸",
+      "condition": "회귀 직후 극심한 두통",
+      "power_level": "F급 (미각성 상태)",
+      "known_facts": [],
+      "relationships": {}
+    }
+  },
+  "world_rules": [],
+  "glossary": [
+    {
+      "term": "Gate",
+      "canonical_form": "게이트",
+      "notes": ""
+    },
+    {
+      "term": "Awakened",
+      "canonical_form": "각성자",
+      "notes": ""
+    },
+    {
+      "term": "Predation",
+      "canonical_form": "포식",
+      "notes": ""
+    }
+  ]
+}

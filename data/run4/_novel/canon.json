@@ -1,0 +1,149 @@
+{
+  "version": 0,
+  "genre_profile_version": 1,
+  "characters": {
+    "길동": {
+      "name": "길동",
+      "aliases": [],
+      "is_main_cast": true,
+      "immutable_descriptors": [
+        "검은 피부",
+        "짧은 머리",
+        "구형 용병 의체 회로",
+        "때 묻은 작업복"
+      ],
+      "voice": {
+        "speech_register": "건조하고 직설적인 평어체",
+        "honorific_pattern": "상대의 신분이나 관직에 관계없이 건조하게 해요체 및 반말을 섞어 씀",
+        "speech_tics": [
+          "나는 정비공이다."
+        ],
+        "exemplar_lines": [
+          "나는 도사가 아니다. 부품 값을 받으러 온 정비공이다.",
+          "시스템에 잡히지 않는 건 내 전뇌 회로가 고물이라서 그렇다."
+        ]
+      },
+      "personality": "지극히 현실적이고 계산적이며 감정 기복이 없음. 오직 수송선 복구와 생계유지에만 관심이 집중됨.",
+      "goals": [
+        "수송선 수리용 부품을 구하고 일당을 벌어 한양 통제구역 탈출",
+        "하루 세 끼 식사 해결"
+      ],
+      "secrets": [
+        "아프리카계 외곽 행성 용병 출신으로 한양 전뇌망에 인적 데이터가 존재하지 않음"
+      ],
+      "status": "active",
+      "current_location": "한양 하층 저잣거리 폐품 집하장",
+      "condition": "한양 전뇌 미접속, 구형 동력원 정상 가동 중",
+      "power_level": "전뇌 해킹 불가능한 구형 회로 및 단순하고 정확한 물리적 근접 전투 기술",
+      "known_facts": [],
+      "relationships": {}
+    },
+    "임진수": {
+      "name": "임진수",
+      "aliases": [],
+      "is_main_cast": false,
+      "immutable_descriptors": [
+        "해어진 도포",
+        "전자 패치가 부착된 갓",
+        "마른 체구"
+      ],
+      "voice": {
+        "speech_register": "격앙되고 신봉하는 목소리",
+        "honorific_pattern": "길동에게는 극존칭 사용, 관아 관원에게는 거친 반말 사용",
+        "speech_tics": [
+          "장군님!"
+        ],
+        "exemplar_lines": [
+          "장군님의 신통력이 관아의 단말을 벼락처럼 찢으셨다!",
+          "이 검은 피부야말로 율도국 도술의 증좌가 아니고 무엇이겠습니까!"
+        ]
+      },
+      "personality": "의적단 왈패 출신. 맹목적인 확증편향을 가지고 있으며 상황을 자신의 뜻대로 해석함.",
+      "goals": [
+        "길동을 수장으로 모시고 양반가를 무찌르는 혁명 완수"
+      ],
+      "secrets": [
+        "관아에 뇌물을 주고 저급 정보 단말을 몰래 공급받은 적이 있음"
+      ],
+      "status": "active",
+      "current_location": "한양 하층 저잣거리",
+      "condition": "양반가 무관들에게 쫓기는 중",
+      "power_level": "저급 의체 장착, 단순 정보 단말 조작 가능",
+      "known_facts": [],
+      "relationships": {}
+    },
+    "윤형원": {
+      "name": "윤형원",
+      "aliases": [],
+      "is_main_cast": false,
+      "immutable_descriptors": [
+        "광택 나는 칠사 철릭",
+        "고급 시각 센서 갓",
+        "오만한 눈빛"
+      ],
+      "voice": {
+        "speech_register": "고압적인 양반 말투",
+        "honorific_pattern": "하층민과 이방인에게 극하대 사용",
+        "speech_tics": [
+          "상놈이"
+        ],
+        "exemplar_lines": [
+          "감히 내 최첨단 의체 예측 알고리즘을 거스르는 자가 있단 말이냐?",
+          "네놈의 전뇌 신호가 읽히지 않는다니, 무슨 요술을 부린 것이냐!"
+        ]
+      },
+      "personality": "자만심이 넘치는 고위 무관. 기술적 우월함을 신분적 우월함으로 착각함.",
+      "goals": [
+        "하층민 소요 사태 진압 및 무등록 이방인 체포"
+      ],
+      "secrets": [
+        "의체 유지비를 충당하기 위해 하층민 노점상을 수탈함"
+      ],
+      "status": "active",
+      "current_location": "한양 통제구역 입구",
+      "condition": "최상급 전투 의체 풀가동 상태",
+      "power_level": "한양 표준 전투 알고리즘 탑재 고급 의체",
+      "known_facts": [],
+      "relationships": {}
+    }
+  },
+  "world_rules": [
+    {
+      "text": "조선어와 기술 명사를 합성한 신조어는 일절 존재하지 않으며, 기술은 '단말', '의체', '칩' 등 표준 사이버펑크 어휘로만 표현한다.",
+      "hard": true
+    },
+    {
+      "text": "한양의 표준 전뇌망은 등록 칩이 없는 인물을 인지하지 못하며, 조선 인물들은 이를 '천기를 가리는 도술'로 착각한다.",
+      "hard": true
+    },
+    {
+      "text": "주인공 길동의 구형 용병 회로는 외부 전뇌 해킹 및 예측 알고리즘에 반응하지 않는다.",
+      "hard": true
+    },
+    {
+      "text": "양반 계층은 고가 의체와 전뇌 접속 권한으로 하층민을 수탈하며, 신분 차별은 예법과 하대로 드러난다.",
+      "hard": false
+    },
+    {
+      "text": "주인공의 외형적 특징과 이방인 신분은 감정적 신파가 아닌 인물들의 경외와 착각을 유발하는 소재로만 쓰인다.",
+      "hard": false
+    }
+  ],
+  "glossary": [
+    {
+      "term": "단말",
+      "canonical_form": "단말",
+      "notes": "정보 및 통신용 전자 기기"
+    },
+    {
+      "term": "의체",
+      "canonical_form": "의체",
+      "notes": "신체를 개조한 사이버네틱 부품"
+    },
+    {
+      "term": "전뇌",
+      "canonical_form": "전뇌",
+      "notes": "뇌에 직접 연결된 정보 네트워크 연동 장치"
+    }
+  ]
+}

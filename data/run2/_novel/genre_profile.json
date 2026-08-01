@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "audience": "102030 남녀공용 스낵컬처 및 개그 액션 선호 독자층",
+  "content_rating": "15+",
+  "sub_genre": "네오 조선 사이버펑크 의적 코미디",
+  "trope_checklist": [
+    "네오 조선 / SF 퓨전 사극",
+    "이방인 영웅 / 흑인 홍길동",
+    "하이테크 활빈당 / 탐관오리 털기",
+    "착각 및 풍자 코미디",
+    "속도감 있는 유쾌한 사이다"
+  ],
+  "episode_length_target": 5200,
+  "pov": "1인칭 주인공 시점",
+  "tense": "현재제",
+  "register_baseline": "위트 있고 경쾌한 유머 중심의 구어체",
+  "target_catharsis_cadence": 3,
+  "max_consecutive_frustration_beats": 1,
+  "forbidden_anti_patterns": [
+    "불필요하게 진지하거나 불쾌감을 주는 혐오·차별 소재의 장기화",
+    "코미디 톤앤매너를 깨뜨리는 지나치게 무거운 신분제 비극 서사",
+    "주인공이 무기력하게 당하기만 하는 2화 이상의 고구마 전개",
+    "지루하고 장대한 세계관 설정 설명 도배"
+  ]
+}

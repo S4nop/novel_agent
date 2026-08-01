@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "audience": "2030 남성 및 SF/블랙코미디 선호층",
+  "content_rating": "15+",
+  "sub_genre": "사이버펑크 풍자 착각 코미디",
+  "trope_checklist": [
+    "사이버펑크 디스토피아",
+    "착각계",
+    "이방인 주인공",
+    "은둔고수 오해",
+    "데드팬 풍자"
+  ],
+  "episode_length_target": 5200,
+  "pov": "1인칭 주인공 시점",
+  "tense": "현재형",
+  "register_baseline": "건조하고 담담한 평서체",
+  "target_catharsis_cadence": 3,
+  "max_consecutive_frustration_beats": 2,
+  "forbidden_anti_patterns": [
+    "조선어와 기술어를 유치하게 합성한 억지 신조어 사용",
+    "과장된 리액션과 유치한 슬랩스틱 연출",
+    "주인공의 자화자찬 및 직접적인 자기 자랑",
+    "이방인 차별을 신파나 감상주의로 푸는 전개"
+  ]
+}

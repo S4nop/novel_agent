@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "audience": "사이버펑크, 풍자 코미디, 착각계를 즐기는 2030 남성향 웹소설 독자층",
+  "content_rating": "15+",
+  "sub_genre": "사이버펑크 조선 풍자 착각 코미디",
+  "trope_checklist": [
+    "사이버펑크",
+    "착각계",
+    "데드팬 코미디",
+    "이방인 주인공",
+    "디스토피아 사회 풍자",
+    "억울한 은둔고수"
+  ],
+  "episode_length_target": 5200,
+  "pov": "1인칭 주인공 시점",
+  "tense": "과거제",
+  "register_baseline": "건조하고 담담한 데드팬 문체. 인물 본인은 극도로 진지하고 억울해하나 독자는 상황적 아이러니를 통해 웃음을 느끼는 톤.",
+  "target_catharsis_cadence": 3,
+  "max_consecutive_frustration_beats": 1,
+  "forbidden_anti_patterns": [
+    "조선어와 기술어를 합성한 억지 신조어(예: 상평통보 코인, 넙적패드 등)",
+    "유치하고 과장된 슬랩스틱 및 리액션",
+    "주인공의 자화자찬 및 직접적 위엄 과시 서술",
+    "이방인 차별 및 소외를 감정적으로 호소하는 신파 연출"
+  ]
+}

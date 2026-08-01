@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "audience": "남성향",
+  "content_rating": "전연령",
+  "sub_genre": "현대 판타지 / 헌터물 · 회귀",
+  "trope_checklist": [
+    "회귀",
+    "각성",
+    "성장형 고유능력",
+    "서열 역전",
+    "히든 정보 선점"
+  ],
+  "episode_length_target": 5200,
+  "pov": "1인칭",
+  "tense": "과거",
+  "register_baseline": "문어체 서술 + 짧은 문단",
+  "target_catharsis_cadence": 3,
+  "max_consecutive_frustration_beats": 2,
+  "forbidden_anti_patterns": [
+    "장황한 설정 설명",
+    "주인공의 무의미한 굴욕 반복",
+    "번역투"
+  ]
+}
