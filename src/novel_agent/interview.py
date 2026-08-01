@@ -16,12 +16,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from .llm import LLM
+from .prompt_store import load, render
 
-_INTERVIEWER = (
-    "당신은 한국 웹소설 기획 편집자입니다. 작가의 짧은 아이디어를 듣고, "
-    "세계관을 대신 상상해 버리지 않기 위해 '작가에게 반드시 물어야 할 것'을 "
-    "질문으로 뽑아냅니다. 출력은 모두 한국어입니다."
-)
 
 
 class InterviewQuestion(BaseModel):
@@ -61,22 +57,10 @@ def generate_interview_questions(
     """Ask the model to propose the highest-leverage questions for THIS idea."""
     plan = llm.structured(
         [
-            {"role": "system", "content": _INTERVIEWER},
-            {
-                "role": "user",
-                "content": (
-                    f"[작가의 아이디어]\n{idea}\n\n"
-                    "이 아이디어만으로는 기획자가 마음대로 상상하게 되는 지점이 많습니다. "
-                    f"작가에게 물어야 할 질문을 최대 {max_questions}개 뽑으세요.\n\n"
-                    "반드시 아래 주제를 포함해 질문을 만드세요:\n"
-                    + "\n".join(f"- {t}" for t in REQUIRED_TOPICS)
-                    + "\n\n규칙:\n"
-                    "- 질문은 구체적이어야 합니다. '톤은 어떻게 할까요?' 같은 막연한 질문 금지.\n"
-                    "- 각 질문에는 작가가 바로 고를 수 있는 선택지를 2~4개 제시하세요.\n"
-                    "- 특히 '이 세계에 없어야 하는 것'을 반드시 물어보세요. "
-                    "설정을 과하게 쌓는 것이 이 작품의 최대 위험입니다."
-                ),
-            },
+            {"role": "system", "content": load("interview_system")},
+            {"role": "user", "content": render(
+                "interview_request", idea=idea, max_questions=max_questions,
+                required_topics=chr(10).join(f"- {t}" for t in REQUIRED_TOPICS))},
         ],
         InterviewPlan,
     )

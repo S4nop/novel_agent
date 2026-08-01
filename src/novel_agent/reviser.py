@@ -15,6 +15,7 @@ from .artifacts import Draft
 from .context_pack import ContextPack
 from .drafter import extract_fact_requests
 from .llm import LLM
+from .prompt_store import render
 from .style import Violation, lint_prose, style_score
 
 # A draft must land within this band of the target length to pass.
@@ -97,18 +98,11 @@ def revise_draft(
         prose = llm.text(
             [
                 {"role": "system", "content": pack.system},
-                {
-                    "role": "user",
-                    "content": (
-                        f"{pack.cached_prefix}\n\n{pack.volatile_suffix}\n\n"
-                        "[아래 원고를 고쳐 다시 쓰세요]\n"
-                        "지적된 문제만 고치고, 잘 된 부분과 사건 전개는 그대로 유지하세요.\n"
-                        "장면을 삭제해 분량을 줄이지 마세요.\n\n"
-                        f"[지적 사항]\n{_fix_instructions(violations, length)}\n\n"
-                        "[원고]\n" + best.prose + "\n\n"
-                        "고친 원고 전문만 출력하세요. 설명이나 머리말을 붙이지 마세요."
-                    ),
-                },
+                {"role": "user", "content": render(
+                    "revise_instruction",
+                    prefix=pack.cached_prefix, suffix=pack.volatile_suffix,
+                    findings=_fix_instructions(violations, length),
+                    prose=best.prose)},
             ],
             max_tokens=max_tokens,
         )

@@ -132,3 +132,40 @@ def test_drafted_episode_is_committed_so_the_next_one_can_see_it(client, tmp_pat
 
     assert store.latest_episode_number() == 1
     assert store.load_episode(1).prose == prose
+
+
+# ── prompt editing ───────────────────────────────────────────────────────────
+def test_prompts_are_listed_with_validation_status(client):
+    ps = client.get("/api/prompts").json()
+    names = {p["name"] for p in ps}
+    assert "style_rules" in names and "drafter_system" in names
+    assert all(p["problems"] == [] for p in ps), "shipped prompts must be valid"
+
+
+def test_a_prompt_can_be_read(client):
+    p = client.get("/api/prompts/style_rules").json()
+    assert p["name"] == "style_rules" and len(p["text"]) > 100
+
+
+def test_saving_a_prompt_that_drops_a_placeholder_is_rejected(client, tmp_path,
+                                                              monkeypatch):
+    monkeypatch.setenv("NOVEL_PROMPTS_DIR", str(tmp_path))
+    from novel_agent import prompt_store
+    prompt_store.clear_cache()
+    (tmp_path / "genre_inference.md").write_text("원본 ${idea}", encoding="utf-8")
+
+    r = client.put("/api/prompts/genre_inference", json={"text": "자리표시자 없음"})
+    assert r.status_code == 400
+    assert "idea" in r.json()["detail"]
+    assert "원본" in (tmp_path / "genre_inference.md").read_text(encoding="utf-8")
+
+
+def test_saving_a_valid_prompt_edit_persists(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVEL_PROMPTS_DIR", str(tmp_path))
+    from novel_agent import prompt_store
+    prompt_store.clear_cache()
+    (tmp_path / "genre_inference.md").write_text("원본 ${idea}", encoding="utf-8")
+
+    r = client.put("/api/prompts/genre_inference", json={"text": "수정본 ${idea}"})
+    assert r.status_code == 200
+    assert "수정본" in (tmp_path / "genre_inference.md").read_text(encoding="utf-8")

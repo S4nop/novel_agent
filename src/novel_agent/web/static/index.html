@@ -107,6 +107,17 @@
       <div id="lintOut" style="margin-top:10px"></div>
     </div>
 
+    <div class="panel">
+      <h2>프롬프트 편집 <span class="k">— 토큰 0원 · 저장 즉시 반영</span></h2>
+      <div class="row">
+        <select id="pList" onchange="loadPrompt(this.value)" style="flex:1"></select>
+        <button class="ghost" onclick="savePrompt()">저장</button>
+      </div>
+      <div id="pHelp" class="k" style="margin:6px 0"></div>
+      <textarea id="pText" rows="14" class="mono" placeholder="프롬프트를 선택하세요"></textarea>
+      <div id="pMsg" style="margin-top:6px"></div>
+    </div>
+
     <div class="panel"><h2>로그</h2><div id="log"></div></div>
   </div>
 
@@ -299,7 +310,46 @@ async function lintText(){
       + violTable(r.violations);
 }
 
-loadConfig(); refreshProjects();
+// ── prompt editing ───────────────────────────────────────────────────────────
+const PROMPT_HELP = {
+  style_rules:'유치함 방지 규칙 전체 — 원고 문체에 가장 큰 영향',
+  drafter_system:'집필 시 모델의 역할·분량·시점',
+  restraint:'설정 과잉·억지 조어 억제',
+  analyst_system:'기획 단계 기본 역할',
+  genre_inference:'아이디어 → 장르 추론',
+  northstar:'전제 후보 생성 방향',
+  canon_init:'인물·세계관·용어집·보이스',
+  episode_plan:'비트시트 설계',
+  interview_system:'인터뷰어 역할',
+  interview_request:'작가에게 물을 질문 생성',
+  revise_instruction:'수정 루프 지시문',
+  voice_spec_guidance:'보이스 바이블 작성 지침',
+};
+async function refreshPrompts(){
+  const ps = await api('/api/prompts');
+  $('#pList').innerHTML = '<option value="">— 프롬프트 선택 —</option>' +
+    ps.map(p=>`<option value="${p.name}">${p.name}${p.problems.length?' ⚠️':''}</option>`).join('');
+}
+async function loadPrompt(name){
+  $('#pMsg').innerHTML=''; if(!name){ $('#pText').value=''; $('#pHelp').textContent=''; return; }
+  const p = await api('/api/prompts/'+name);
+  $('#pText').value = p.text;
+  const ph = [...p.text.matchAll(/\$\{(\w+)\}/g)].map(m=>m[1]);
+  $('#pHelp').innerHTML = `${esc(PROMPT_HELP[name]||'')}` +
+    (ph.length?` · <b>지우면 안 되는 자리표시자:</b> ${ph.map(x=>'${'+x+'}').join(', ')}`:'');
+}
+async function savePrompt(){
+  const name = $('#pList').value; if(!name) return;
+  try {
+    await api('/api/prompts/'+name,'PUT',{text:$('#pText').value});
+    $('#pMsg').innerHTML = '<span class="pill ok">저장됨 · 다음 실행부터 반영</span>';
+    log('프롬프트 저장: '+name); refreshPrompts();
+  } catch(e){
+    $('#pMsg').innerHTML = `<span class="pill bad">저장 거부</span> <span class="k">${esc(e.message)}</span>`;
+  }
+}
+
+loadConfig(); refreshProjects(); refreshPrompts();
 </script>
 </body>
 </html>

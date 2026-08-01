@@ -241,6 +241,53 @@ caught the false positives.
 
 ---
 
+## 6.5 프롬프트 튜닝 (for a PM / editor — no Python needed)
+
+**Prompts are the main tuning surface of this product, and you do not need to read
+code to change them.** All prompt text lives in [`../prompts/`](../prompts/) as plain
+`.md` files — see [`prompts/_README.md`](../prompts/_README.md).
+
+Two ways to edit:
+
+1. **Web console → 프롬프트 편집 panel.** Pick a prompt, edit, save. Validation runs on
+   save and it takes effect on the next run. Costs no tokens.
+2. **Edit `prompts/*.md` directly**, then restart the server.
+
+### The one rule
+
+`${이름}` markers are **placeholders** — real values (the idea, the genre, the draft)
+get substituted in at runtime. **Do not delete them.** If you do, the save is rejected
+with a message naming the missing one, because a prompt that quietly lost `${idea}`
+would degrade everything downstream with no error.
+
+Everything else is free text. Write in Korean.
+
+### Which file changes what
+
+| File | Effect | Impact |
+|---|---|---|
+| `style_rules.md` | all the anti-유치함 craft rules | ★★★ highest |
+| `drafter_system.md` | the writer's role, length, POV | ★★★ |
+| `restraint.md` | how hard to suppress over-invented settings | ★★ |
+| `northstar.md` | how premise candidates are generated | ★★ |
+| `canon_init.md` | characters, world rules, glossary, voice | ★★ |
+| `episode_plan.md` | beat sheet: hook, beats, cliffhanger | ★★ |
+| `interview_request.md` | what the agent asks the author | ★★ |
+| `genre_inference.md` | how genre is read from the idea | ★ |
+| `revise_instruction.md` | how fixes are demanded in the revise loop | ★ |
+| `analyst_system.md`, `interview_system.md`, `voice_spec_guidance.md` | role framing | ★ |
+
+### A safe tuning loop
+
+1. Copy `prompts/` somewhere and run with `NOVEL_PROMPTS_DIR=/path/to/copy` — the
+   original set stays untouched, so you can A/B two prompt sets.
+2. Generate an episode, then paste it into the **문체 린트** panel (free) for an
+   objective before/after score.
+3. Read it as well — the lint checks mechanics, not whether it is enjoyable.
+4. To roll back: `git checkout prompts/`.
+
+---
+
 ## 7. Validate your model before you trust it (do this once)
 
 Adapted from the project's Phase 0 gate. Roughly an hour, and it prevents weeks of

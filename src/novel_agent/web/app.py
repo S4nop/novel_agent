@@ -29,6 +29,7 @@ from ..context_pack import ContextPackBuilder
 from ..drafter import draft_episode
 from ..interview import Answer, enrich_idea, generate_interview_questions
 from ..llm import LLMRefusal, Usage, build_llm
+from ..prompt_store import list_prompts, load as load_prompt, save as save_prompt, validate as validate_prompt
 from ..nodes import (
     generate_northstar_candidates,
     infer_genre_profile,
@@ -121,6 +122,10 @@ class LockIn(BaseModel):
     pick: int = 1
 
 
+class PromptIn(BaseModel):
+    text: str
+
+
 class LintIn(BaseModel):
     text: str
     target_chars: int = 5200
@@ -168,6 +173,33 @@ def lint(body: LintIn):
             for v in vs
         ],
     }
+
+
+# ── prompt editing (no LLM cost; this is the main tuning surface) ────────────
+@app.get("/api/prompts")
+def prompts_index():
+    return [{"name": n, "problems": validate_prompt(n)} for n in list_prompts()]
+
+
+@app.get("/api/prompts/{name}")
+def prompt_get(name: str):
+    try:
+        return {"name": name, "text": load_prompt(name), "problems": validate_prompt(name)}
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@app.put("/api/prompts/{name}")
+def prompt_put(name: str, body: PromptIn):
+    """Rejects an edit that drops a required ${placeholder} — a silently broken
+    prompt is worse than a failed save."""
+    try:
+        save_prompt(name, body.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    return {"name": name, "text": load_prompt(name), "problems": validate_prompt(name)}
 
 
 # ── pipeline ─────────────────────────────────────────────────────────────────
