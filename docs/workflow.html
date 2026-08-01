@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>novel-agent — 에이전트 워크플로우</title>
+<style>
+  .viz-root{
+    color-scheme: light;
+    --surface-1:#fcfcfb; --surface-2:#f4f4f1; --line:#dcdbd5;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#78776f;
+    --kind-llm:#2a78d6;      /* categorical slot 1 */
+    --kind-gate:#eb6834;     /* categorical slot 2 */
+    --kind-code:#1baf7a;     /* categorical slot 3 */
+    --status-good:#0ca30c; --status-warning:#fab219;
+    --flow:#b6b5ad;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])) .viz-root{
+      color-scheme: dark;
+      --surface-1:#1a1a19; --surface-2:#232322; --line:#3a3a37;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#94938a;
+      --kind-llm:#3987e5; --kind-gate:#d95926; --kind-code:#199e70;
+      --status-good:#0ca30c; --status-warning:#fab219;
+      --flow:#55554f;
+    }
+  }
+  :root[data-theme="dark"] .viz-root{
+    color-scheme: dark;
+    --surface-1:#1a1a19; --surface-2:#232322; --line:#3a3a37;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#94938a;
+    --kind-llm:#3987e5; --kind-gate:#d95926; --kind-code:#199e70;
+    --status-good:#0ca30c; --status-warning:#fab219;
+    --flow:#55554f;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface-1)}
+  .viz-root{
+    background:var(--surface-1); color:var(--text-primary);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",
+         "Noto Sans KR",sans-serif;
+    padding:32px 24px 72px; min-height:100vh;
+  }
+  .page{max-width:1080px;margin:0 auto}
+
+  header.top{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:6px}
+  h1{font-size:22px;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--text-secondary);font-size:14px;margin:6px 0 0;max-width:60ch}
+  .toggle{margin-left:auto;background:transparent;border:1px solid var(--line);
+    color:var(--text-secondary);border-radius:8px;padding:7px 12px;cursor:pointer;font:inherit;font-size:13px}
+
+  /* legend */
+  .legend{display:flex;gap:18px;flex-wrap:wrap;align-items:center;
+    margin:22px 0 8px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--surface-2);font-size:13px}
+  .lg{display:flex;align-items:center;gap:7px;color:var(--text-secondary)}
+  .swatch{width:13px;height:13px;border-radius:4px;flex:none}
+  .swatch.dash{background:transparent;border:2px dashed var(--text-muted)}
+
+  /* phases */
+  .phase{margin-top:26px}
+  .phase-head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .phase-num{font-size:11px;font-weight:800;letter-spacing:.12em;color:var(--text-muted)}
+  .phase-title{font-size:15px;font-weight:700}
+  .phase-note{font-size:12px;color:var(--text-muted)}
+
+  .track{display:flex;flex-direction:column;gap:0}
+  .rowflex{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+
+  /* node card */
+  .node{position:relative;flex:1 1 210px;min-width:200px;
+    border:1.5px solid var(--line);border-left-width:5px;border-radius:10px;
+    background:var(--surface-2);padding:11px 13px;cursor:default}
+  .node.llm{border-left-color:var(--kind-llm)}
+  .node.gate{border-left-color:var(--kind-gate)}
+  .node.code{border-left-color:var(--kind-code)}
+  .node.todo{border-style:dashed;border-left-style:solid;opacity:.72}
+  .node:hover{border-color:var(--text-muted)}
+  .node .idx{position:absolute;top:-9px;left:11px;background:var(--surface-1);
+    color:var(--text-muted);font-size:10px;font-weight:800;letter-spacing:.06em;padding:0 6px;
+    border:1px solid var(--line);border-radius:999px}
+  .step{display:flex;align-items:center;color:var(--flow);font-size:18px;flex:none;
+    padding:0 2px;user-select:none}
+  @media (max-width:780px){ .step{display:none} }
+  .node .kind{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-muted);display:flex;align-items:center;gap:6px}
+  .node .name{font-weight:700;font-size:14px;margin:3px 0 2px}
+  .node .art{font-size:12px;color:var(--text-secondary)}
+  .node .art code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px}
+  .st{font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:999px;margin-left:auto}
+  .st.built{color:var(--status-good);border:1px solid var(--status-good)}
+  .st.todo{color:var(--text-muted);border:1px dashed var(--text-muted)}
+
+  /* tooltip */
+  .node[data-tip]:hover::after{
+    content:attr(data-tip);position:absolute;left:0;top:calc(100% + 7px);z-index:20;
+    background:var(--text-primary);color:var(--surface-1);padding:8px 11px;border-radius:8px;
+    font-size:12px;line-height:1.5;width:max(100%,270px);white-space:pre-line;
+    box-shadow:0 6px 20px rgba(0,0,0,.28)}
+
+  /* connectors */
+  .arrow{height:22px;display:flex;align-items:center;justify-content:center;color:var(--flow)}
+  .arrow::before{content:"";width:2px;height:100%;background:var(--flow)}
+  .arrow::after{content:"▼";position:absolute;bottom:-3px;font-size:9px;color:var(--flow)}
+  .arrow span{position:absolute;background:var(--surface-1);padding:0 8px;
+    font-size:11px;color:var(--text-muted)}
+  .arrowwrap{position:relative;display:flex;justify-content:center}
+
+  /* loop band */
+  .loop{border:2px dashed var(--kind-llm);border-radius:12px;padding:14px 14px 8px;
+    margin-top:6px;position:relative;background:color-mix(in srgb,var(--kind-llm) 5%,transparent)}
+  .loop-tag{position:absolute;top:-10px;left:14px;background:var(--surface-1);
+    padding:0 8px;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--kind-llm)}
+  .loopback{display:flex;align-items:center;gap:8px;justify-content:flex-end;
+    font-size:12px;color:var(--text-secondary);margin-top:10px;padding-top:9px;
+    border-top:1px dashed var(--line)}
+
+  /* memory panel */
+  .mem{margin-top:26px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:16px}
+  .mem h3{margin:0 0 4px;font-size:14px}
+  .mem .tiers{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+  .tier{flex:1 1 200px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--surface-1)}
+  .tier b{font-size:13px} .tier div{font-size:12px;color:var(--text-secondary);margin-top:3px}
+
+  .callout{margin-top:14px;border-left:4px solid var(--status-warning);
+    background:color-mix(in srgb,var(--status-warning) 9%,transparent);
+    padding:11px 14px;border-radius:0 9px 9px 0;font-size:13.5px}
+  .callout b{color:var(--text-primary)}
+
+  /* table view */
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+  caption{text-align:left;font-size:12px;color:var(--text-muted);padding-bottom:8px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);font-weight:700}
+  td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-secondary)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:baseline}
+  details{margin-top:30px} summary{cursor:pointer;font-size:13px;color:var(--text-secondary);font-weight:600}
+  footer{margin-top:34px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body class="viz-root">
+<div class="page">
+
+<header class="top">
+  <div>
+    <h1>에이전트 워크플로우</h1>
+    <p class="sub">한 줄 아이디어에서 웹소설 1화까지. 사람이 결정하는 지점(게이트)과
+      아직 만들지 않은 부분을 함께 표시했습니다.</p>
+  </div>
+  <button class="toggle" id="themeBtn" onclick="toggleTheme()">◐ 라이트/다크</button>
+</header>
+
+<div class="legend" role="list">
+  <span class="lg" role="listitem"><span class="swatch" style="background:var(--kind-llm)"></span> LLM 노드</span>
+  <span class="lg" role="listitem"><span class="swatch" style="background:var(--kind-code)"></span> 코드 (결정적·토큰 0)</span>
+  <span class="lg" role="listitem"><span class="swatch" style="background:var(--kind-gate)"></span> ▣ 사람 게이트</span>
+  <span class="lg" role="listitem"><span class="st built">구현됨</span> 동작함</span>
+  <span class="lg" role="listitem"><span class="swatch dash"></span><span class="st todo">미구현</span> 설계만 존재</span>
+</div>
+
+<!-- ── PHASE 1 ───────────────────────────────────────────────────────── -->
+<section class="phase">
+  <div class="phase-head"><span class="phase-num">PHASE 1</span>
+    <span class="phase-title">셋업 — 작품당 한 번</span>
+    <span class="phase-note">세계를 정하는 것은 모델이 아니라 작가입니다</span></div>
+
+  <div class="track">
+    <div class="rowflex">
+      <div class="node code" data-tip="사용자가 입력하는 단 한 줄.&#10;예) 네오 조선의 흑인 홍길동, 코믹">
+        <span class="idx">01</span>
+        <div class="kind">입력 <span class="st built">구현됨</span></div>
+        <div class="name">아이디어</div>
+        <div class="art">→ <code>Idea</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm" data-tip="아이디어만으로 기획자가 멋대로 상상하게 되는 지점을&#10;질문으로 뽑아냅니다. '이 세계에 없어야 하는 것'을 반드시 묻습니다.">
+        <span class="idx">02</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">설정 인터뷰</div>
+        <div class="art">→ 질문 8–10개</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node gate" data-tip="작가의 답변이 Idea에 합쳐지고,&#10;이후 모든 노드는 '여기서 벗어난 설정을 상상하지 말 것' 지시를 함께 받습니다.&#10;이 단계를 건너뛰면 설정이 과잉 생성되어 유치해집니다.">
+        <span class="idx">03</span>
+        <div class="kind">▣ 게이트 <span class="st built">구현됨</span></div>
+        <div class="name">작가 답변</div>
+        <div class="art">→ <code>Idea</code> (보강됨)</div>
+      </div>
+    </div>
+
+    <div class="arrowwrap"><div class="arrow"></div></div>
+
+    <div class="rowflex">
+      <div class="node llm" data-tip="장르를 고정 목록에서 고르지 않고 아이디어의 신호에서 추론합니다.&#10;사이다 주기·최대 연속 고구마를 숫자로 확정 → 이후 모든 루브릭의 기준.">
+        <span class="idx">04</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">장르 추론 (L0)</div>
+        <div class="art">→ <code>GenreProfile</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm" data-tip="서로 구조가 다른 전제 3개를 생성합니다&#10;(안전한 노선 / 신선한 노선 / 주제 정면돌파).">
+        <span class="idx">05</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">전제 후보 ×3 (L1)</div>
+        <div class="art">→ <code>NorthStar</code> 후보</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node gate" data-tip="작가가 하나를 고릅니다. 모델이 대신 고르지 않습니다.&#10;작품의 성격이 여기서 결정됩니다.">
+        <span class="idx">06</span>
+        <div class="kind">▣ 게이트 <span class="st built">구현됨</span></div>
+        <div class="name">전제 확정</div>
+        <div class="art">→ <code>NorthStar</code></div>
+      </div>
+    </div>
+
+    <div class="arrowwrap"><div class="arrow"></div></div>
+
+    <div class="rowflex">
+      <div class="node llm" data-tip="인물 카드(불변 특징 + 말투 카드), 세계 규칙, 용어집, 보이스 바이블.&#10;빈 떡밥 원장·리듬 상태·요약도 이때 함께 생성됩니다.">
+        <span class="idx">07</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">캐논 + 보이스 바이블</div>
+        <div class="art">→ <code>Canon</code> · <code>VoiceBible</code> · 원장</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node gate" data-tip="문체와 인물 말투를 작가가 확정합니다.&#10;이후 매 화가 이 보이스를 따릅니다.">
+        <span class="idx">08</span>
+        <div class="kind">▣ 게이트 <span class="st built">구현됨</span></div>
+        <div class="name">보이스 확정</div>
+        <div class="art">→ 셋업 완료</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm todo" data-tip="현재는 1개 아크 스텁만 존재합니다.&#10;다중 아크 서사에는 실제 ArcPlanner가 필요합니다.">
+        <span class="idx">09</span>
+        <div class="kind">LLM <span class="st todo">미구현</span></div>
+        <div class="name">아크 설계 (L2)</div>
+        <div class="art">→ <code>ArcMap</code> · 스텁만</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="arrowwrap"><div class="arrow"><span>매 화 반복</span></div></div>
+
+<!-- ── PHASE 2 : EPISODE LOOP ────────────────────────────────────────── -->
+<section class="phase">
+  <div class="phase-head"><span class="phase-num">PHASE 2</span>
+    <span class="phase-title">에피소드 루프 — 1화마다</span>
+    <span class="phase-note">원본 7단계의 &ldquo;이전 화를 다시 읽기&rdquo;를 대체하는 구간</span></div>
+
+  <div class="loop">
+    <span class="loop-tag">EPISODE LOOP</span>
+
+    <div class="rowflex">
+      <div class="node llm" data-tip="떡밥 회수 기한과 사이다 리듬(고구마 누적)을 강제합니다.&#10;고구마가 쌓이면 새 setup 위주 전개를 막고 보상을 요구합니다.">
+        <span class="idx">10</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">비트시트 설계 (L3)</div>
+        <div class="art">→ <code>BeatSheet</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node code" data-tip="토큰 0. 캐시 고정 프리픽스(불변 설정) + 가변 서픽스(현재 상태·직전 1화·비트시트).&#10;예산을 넘으면 직전 화부터 잘라내고 프리픽스는 절대 건드리지 않습니다.">
+        <span class="idx">11</span>
+        <div class="kind">코드 <span class="st built">구현됨</span></div>
+        <div class="name">컨텍스트팩 조립</div>
+        <div class="art">→ <code>ContextPack</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm" data-tip="캐논에 없는 사실을 지어내지 않고 [[FACT: …]]로 요청만 남깁니다.&#10;다만 실측 결과 자진 신고를 잘 하지 않아 연속성 검사가 필요합니다.">
+        <span class="idx">12</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">집필</div>
+        <div class="art">→ <code>Draft</code> · <code>FactRequest</code></div>
+      </div>
+    </div>
+
+    <div class="arrowwrap"><div class="arrow"></div></div>
+
+    <div class="rowflex">
+      <div class="node llm todo" data-tip="원고의 주장을 캐논과 대조해 모순을 하드 블록.&#10;실측: 모델이 나이·장소를 지어내고도 스스로 신고하지 않았습니다.&#10;→ 선택이 아니라 필수 구성요소.">
+        <span class="idx">13</span>
+        <div class="kind">TRACK A · LLM <span class="st todo">미구현</span></div>
+        <div class="name">연속성 검사</div>
+        <div class="art">캐논 대조 · 하드 블록</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm todo" data-tip="장르 루브릭 기반 크래프트 심사(근거 인용 후 점수).&#10;집필 모델과 다른 컨텍스트에서 독립적으로 판단해야 합니다.">
+        <span class="idx">14</span>
+        <div class="kind">TRACK B · LLM <span class="st todo">미구현</span></div>
+        <div class="name">크래프트 심사</div>
+        <div class="art">루브릭 채점</div>
+      </div>
+      <div class="step">→</div>
+      <div class="node code" data-tip="토큰 0. 한국 웹소설 실무 자료에서 뽑은 22개 규칙.&#10;느낌표·자기 칭찬 서술·번역체·감정 직설·대사 비중·다다다체 등.&#10;유치함을 취향이 아니라 숫자로 만듭니다.">
+        <span class="idx">15</span>
+        <div class="kind">TRACK C · 코드 <span class="st built">구현됨</span></div>
+        <div class="name">문체 린트</div>
+        <div class="art">→ 0–100점 + 위반 목록</div>
+      </div>
+    </div>
+
+    <div class="arrowwrap"><div class="arrow"><span>위반이 있으면</span></div></div>
+
+    <div class="rowflex">
+      <div class="node llm" data-tip="지적된 항목만 고칩니다. 반복 횟수 상한이 있고,&#10;가장 좋은 판본을 보관합니다(마지막 판본을 무조건 받지 않음 — 과교정은 악화됩니다).&#10;분량 충족이 문체 점수보다 우선합니다.">
+        <span class="idx">16</span>
+        <div class="kind">LLM <span class="st built">구현됨</span></div>
+        <div class="name">수정 (유한 반복 · keep-best)</div>
+        <div class="art">→ <code>RevisedDraft</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node gate" data-tip="Co-writer 모드에서는 사람이 매 화를 승인합니다.&#10;승인 = 캐논 커밋. 거절 경로는 아직 형식화되지 않았습니다.">
+        <span class="idx">17</span>
+        <div class="kind">▣ 게이트 <span class="st built">구현됨</span></div>
+        <div class="name">사람 승인</div>
+        <div class="art">→ <code>AcceptedEpisode</code></div>
+      </div>
+      <div class="step">→</div>
+      <div class="node llm todo" data-tip="★ 가장 중요한 미구현 항목.&#10;승인된 원고에서 상태를 추출해 캐논에 커밋합니다.&#10;이것이 없으면 캐논이 누적되지 않아 '연재'가 성립하지 않습니다.">
+        <span class="idx">18</span>
+        <div class="kind">LLM <span class="st todo">미구현</span></div>
+        <div class="name">캐논화 (Canonicalizer)</div>
+        <div class="art">→ <code>CanonDelta</code> → 캐논</div>
+      </div>
+    </div>
+
+    <div class="loopback">↩ 다음 화로 — 갱신된 캐논·원장·요약이 다시 컨텍스트팩으로 들어갑니다</div>
+  </div>
+</section>
+
+<!-- ── MEMORY ────────────────────────────────────────────────────────── -->
+<section class="mem">
+  <h3>기억 계층 — 이 설계의 핵심</h3>
+  <p class="sub" style="margin:0">일관성은 <b>쓰기 경로</b> 문제입니다. 이전 화를 다시 읽지 않고,
+    승인된 화에서 상태를 뽑아 저장한 뒤 그것을 조회합니다.
+    (이전 화 전체를 다시 넣으면 비용이 O(n²)이고 주의력이 떨어집니다.)</p>
+  <div class="tiers">
+    <div class="tier"><b>1 · 캐논 (권위 있는 사실)</b>
+      <div>인물 카드·말투 카드, 세계 규칙, 용어집. 단일 작성자만 수정, 추가 전용.</div></div>
+    <div class="tier"><b>2 · 원장 (교차 화 제어)</b>
+      <div>떡밥 장부(회수 기한), 사이다/고구마 리듬 상태. 이 둘이 &lsquo;웹소설&rsquo;답게 만듭니다.</div></div>
+    <div class="tier"><b>3 · 요약 + 직전 1화</b>
+      <div>롤링 요약과 직전 화 원문(문체·절단 이음새용).</div></div>
+  </div>
+  <div class="callout">
+    <b>현재 이 순환은 끊겨 있습니다.</b> 집필된 화는 저장되어 다음 화가 <i>원문</i>으로 볼 수 있지만,
+    캐논화 노드가 없어 <b>캐논이 갱신되지 않습니다</b>. 즉 지금은 훌륭한
+    <b>1화·파일럿 생성기</b>이고, 아직 100화를 끌고 가는 연재 엔진은 아닙니다.
+    다음에 만들 가치가 가장 큰 항목입니다.
+  </div>
+</section>
+
+<!-- ── TABLE VIEW ────────────────────────────────────────────────────── -->
+<details open>
+  <summary>표로 보기 (색에 의존하지 않는 동일 정보)</summary>
+  <table>
+    <caption>단계 · 종류 · 산출물 · 구현 상태</caption>
+    <thead><tr><th>단계</th><th>종류</th><th>산출물</th><th>상태</th></tr></thead>
+    <tbody>
+      <tr><td>아이디어 입력</td><td><span class="dot" style="background:var(--kind-code)"></span>입력</td><td><code>Idea</code></td><td>구현됨</td></tr>
+      <tr><td>설정 인터뷰</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>질문 8–10개</td><td>구현됨</td></tr>
+      <tr><td>작가 답변 ▣</td><td><span class="dot" style="background:var(--kind-gate)"></span>사람 게이트</td><td><code>Idea</code> 보강</td><td>구현됨</td></tr>
+      <tr><td>장르 추론 (L0)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>GenreProfile</code></td><td>구현됨</td></tr>
+      <tr><td>전제 후보 ×3 (L1)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>NorthStar</code> 후보</td><td>구현됨</td></tr>
+      <tr><td>전제 확정 ▣</td><td><span class="dot" style="background:var(--kind-gate)"></span>사람 게이트</td><td><code>NorthStar</code></td><td>구현됨</td></tr>
+      <tr><td>캐논 + 보이스 바이블</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>Canon</code>·<code>VoiceBible</code>·원장</td><td>구현됨</td></tr>
+      <tr><td>보이스 확정 ▣</td><td><span class="dot" style="background:var(--kind-gate)"></span>사람 게이트</td><td>셋업 완료</td><td>구현됨</td></tr>
+      <tr><td>아크 설계 (L2)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>ArcMap</code></td><td>미구현 (스텁)</td></tr>
+      <tr><td>비트시트 설계 (L3)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>BeatSheet</code></td><td>구현됨</td></tr>
+      <tr><td>컨텍스트팩 조립</td><td><span class="dot" style="background:var(--kind-code)"></span>코드</td><td><code>ContextPack</code></td><td>구현됨</td></tr>
+      <tr><td>집필</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>Draft</code>·<code>FactRequest</code></td><td>구현됨</td></tr>
+      <tr><td>연속성 검사 (Track A)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>모순 하드 블록</td><td>미구현</td></tr>
+      <tr><td>크래프트 심사 (Track B)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>루브릭 채점</td><td>미구현</td></tr>
+      <tr><td>문체 린트 (Track C)</td><td><span class="dot" style="background:var(--kind-code)"></span>코드</td><td>0–100점 + 위반</td><td>구현됨</td></tr>
+      <tr><td>수정 루프</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>RevisedDraft</code></td><td>구현됨</td></tr>
+      <tr><td>사람 승인 ▣</td><td><span class="dot" style="background:var(--kind-gate)"></span>사람 게이트</td><td><code>AcceptedEpisode</code></td><td>구현됨</td></tr>
+      <tr><td>캐논화</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>CanonDelta</code> → 캐논</td><td>미구현 ★</td></tr>
+      <tr><td>아크 감사 / 완결 판정</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>재계획 지시·완결</td><td>미구현</td></tr>
+    </tbody>
+  </table>
+</details>
+
+<footer>
+  설계 근거: <code>DESIGN.md</code> · 시작 가이드: <code>docs/GUIDE.md</code> ·
+  문체 규칙: <code>docs/style-spec.md</code> · 프롬프트 편집: <code>prompts/</code>
+</footer>
+</div>
+
+<script>
+  function toggleTheme(){
+    const cur = document.documentElement.getAttribute('data-theme');
+    const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const next = cur ? (cur === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', next);
+  }
+</script>
+</body>
+</html>

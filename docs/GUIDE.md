@@ -6,6 +6,9 @@ built this way; this document is *how to use it*.
 
 ---
 
+> 🗺️ **Visual overview:** open [`workflow.html`](./workflow.html) in a browser for a
+> one-page diagram of every stage, human gate, and what is / isn't built yet.
+
 ## 0. Read this first — what actually works today
 
 Being honest up front saves you an afternoon.

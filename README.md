@@ -3,6 +3,7 @@
 AI agent that writes serialized **Korean web novels (웹소설)**.
 
 ### 👉 New here? Start with the [**시작 가이드 / Getting Started**](./docs/GUIDE.md)
+### 🗺️ Want the big picture first? Open [**docs/workflow.html**](./docs/workflow.html) — a one-page diagram of the whole pipeline (open it in a browser)
 
 Also: architecture & rationale [`DESIGN.md`](./DESIGN.md) · prose rules
 [`docs/style-spec.md`](./docs/style-spec.md) · Korean-market research
