@@ -130,3 +130,25 @@ def test_score_distinguishes_severity_of_the_same_violation():
     many = base + "\n" + "\n".join(f'"놀랐다{"!"*1}"' for _ in range(40))
     few = base + "\n" + "\n".join(f'"놀랐다{"!"*1}"' for _ in range(12))
     assert style_score(few) > style_score(many)
+
+
+def test_every_lint_rule_has_a_rationale_and_a_fix():
+    """A rule with no explanation reads as an arbitrary deduction (feedback 3).
+    This fails loudly if someone adds a rule without documenting it."""
+    from novel_agent.style import RULE_INFO
+    import novel_agent.style as st
+
+    # every rule the linter can emit must be documented
+    samples = [
+        '"오이오이!!" 역시 나였다. 나는 정말 분노했다. 전형적인 악당이었다!',
+        "\n".join(["문장이 길어지고 또 길어지며 계속 이어지는 서술이다" * 2] * 12),
+        "장부를 확인했다. 창고를 점검했다. 손해를 계산했다.",
+    ]
+    seen = set()
+    for text in samples:
+        for v in st.lint_prose(text):
+            seen.add(v.rule)
+            assert v.meta is not None, f"'{v.rule}' has no RuleMeta"
+            assert v.meta.why and v.meta.fix
+    assert len(seen) >= 6
+    assert all(m.why and m.fix for m in RULE_INFO.values())

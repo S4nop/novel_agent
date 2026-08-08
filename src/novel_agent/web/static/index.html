@@ -83,7 +83,13 @@
       <div id="profile" style="margin-top:10px"></div>
       <div id="cands" style="margin-top:10px"></div>
       <button onclick="lock()" id="bLock" disabled style="display:none">선택한 전제로 캐논 생성</button>
+      <div class="row" id="canonBar" style="margin-top:10px;display:none">
+        <button class="ghost" onclick="editCanon()" id="bEdit">캐논 직접 수정</button>
+        <button class="ghost" onclick="saveCanon()" id="bSaveCanon" style="display:none">저장</button>
+        <span id="canonMsg" class="k"></span>
+      </div>
       <div id="canon" style="margin-top:10px"></div>
+      <textarea id="canonEdit" rows="18" class="mono" style="display:none;margin-top:10px"></textarea>
     </div>
 
     <div class="panel">
@@ -255,9 +261,30 @@ function renderCanon(st){
   const chars = Object.values(c.characters||{}).map(x=>
     `<tr><th>${x.is_main_cast?'주요':'조연'} ${esc(x.name)}</th><td>${esc((x.immutable_descriptors||[]).join(', '))}<br>
      <span class="k">${esc(x.voice.speech_register)} / ${esc(x.voice.honorific_pattern)}</span></td></tr>`).join('');
+  $('#canonBar').style.display='';
   $('#canon').innerHTML = `<table>${chars}
     <tr><th>용어집</th><td>${esc((c.glossary||[]).map(g=>g.canonical_form).join(', '))} <span class="k">(${(c.glossary||[]).length}개)</span></td></tr>
     <tr><th>문체</th><td>${esc((v.spec||'').slice(0,240))}</td></tr></table>`;
+}
+
+// ── canon hand-editing (regeneration re-rolls the parts you liked) ──────────
+async function editCanon(){
+  const c = await api(`/api/projects/${PID}/canon`);
+  $('#canonEdit').value = JSON.stringify(c, null, 2);
+  $('#canonEdit').style.display=''; $('#canon').style.display='none';
+  $('#bSaveCanon').style.display=''; $('#bEdit').style.display='none';
+  $('#canonMsg').textContent='필요한 부분만 고치세요. 저장하면 version이 올라가고 author 편집으로 기록됩니다.';
+}
+async function saveCanon(){
+  try{
+    const canon = JSON.parse($('#canonEdit').value);
+    const saved = await api(`/api/projects/${PID}/canon`,'PUT',{canon});
+    $('#canonEdit').style.display='none'; $('#canon').style.display='';
+    $('#bSaveCanon').style.display='none'; $('#bEdit').style.display='';
+    $('#canonMsg').innerHTML = `<span class="pill ok">저장됨 v${saved.version}</span>`;
+    renderCanon({canon:saved, voice:{spec:''}}); log('캐논 수정 저장 v'+saved.version);
+    applyState(await api('/api/projects/'+PID));
+  }catch(e){ $('#canonMsg').innerHTML = `<span class="pill bad">저장 실패</span> ${esc(e.message)}`; }
 }
 
 // ── episode ──────────────────────────────────────────────────────────────────
@@ -287,9 +314,19 @@ async function writeEpisode(){
 function violTable(vs){
   if(!vs || !vs.length) return '<span class="pill ok">위반 없음</span>';
   return `<table><tr><th>규칙</th><th>등급</th><th>현재</th><th>한도</th></tr>` +
-    vs.map(v=>`<tr><td>${esc(v.rule)}${v.evidence?`<br><span class="k">${esc(v.evidence)}</span>`:''}</td>
-      <td><span class="pill ${v.severity==='blocker'?'bad':v.severity==='major'?'warn':'dim'}">${v.severity}</span></td>
-      <td>${v.count}</td><td class="k">${esc(v.limit)}</td></tr>`).join('') + '</table>';
+    vs.map(v=>{
+      const has = v.why || v.fix;
+      const detail = has ? `<tr class="why"><td colspan="4">
+          <div><b>왜 문제인가</b> · ${esc(v.why||'')}</div>
+          <div style="margin-top:4px"><b>고치는 법</b> · ${esc(v.fix||'')}</div>
+          ${v.bad?`<div class="cmp"><span class="bad-ex">✕ ${esc(v.bad)}</span>
+                    <span class="good-ex">✓ ${esc(v.good||'')}</span></div>`:''}
+        </td></tr>` : '';
+      return `<tr class="rule ${has?'has':''}" onclick="this.classList.toggle('open')">
+        <td>${has?'<span class="tw">▸</span> ':''}${esc(v.rule)}${v.evidence?`<br><span class="k">${esc(v.evidence)}</span>`:''}</td>
+        <td><span class="pill ${v.severity==='blocker'?'bad':v.severity==='major'?'warn':'dim'}">${v.severity}</span></td>
+        <td>${v.count}</td><td class="k">${esc(v.limit)}</td></tr>` + detail;
+    }).join('') + '</table>';
 }
 function beatHtml(b){
   if(!b) return '—';
@@ -306,7 +343,9 @@ async function lintText(){
   const r = await api('/api/lint','POST',{text, target_chars:+$('#lintTarget').value});
   const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
   $('#lintOut').innerHTML = `<div class="row" style="margin-bottom:8px">
-      <span class="score" style="color:var(--${cls})">${r.score}</span><span class="k">/100 · ${r.chars}자</span></div>`
+      <span class="score" style="color:var(--${cls})">${r.score}</span>
+      <span class="k">/100 · ${r.chars}자 · 통과 기준 ${r.pass_score ?? 85}점</span>
+      <span class="k">— 규칙을 클릭하면 이유와 고치는 법이 나옵니다</span></div>`
       + violTable(r.violations);
 }
 

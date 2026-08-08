@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from ..artifacts import Draft, Summary
 from ..canon_store import CanonStore
+from ..canonicalizer import commit_episode_state
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
 from ..drafter import draft_episode
@@ -39,6 +40,7 @@ from ..nodes import (
     to_north_star,
 )
 from ..reviser import revise_draft
+from ..reviser import PASS_SCORE
 from ..style import lint_prose, style_score
 
 app = FastAPI(title="novel-agent test console")
@@ -126,6 +128,10 @@ class PromptIn(BaseModel):
     text: str
 
 
+class CanonIn(BaseModel):
+    canon: dict
+
+
 class LintIn(BaseModel):
     text: str
     target_chars: int = 5200
@@ -160,6 +166,18 @@ def health():
     return _guard(run)
 
 
+def _violation_json(v) -> dict:
+    """Include WHY and HOW-TO-FIX — a bare number reads as an arbitrary deduction
+    and teaches the author nothing (tester feedback 3)."""
+    m = v.meta
+    return {
+        "rule": v.rule, "severity": v.severity, "count": v.count,
+        "limit": v.limit, "evidence": v.evidence,
+        "why": m.why if m else "", "fix": m.fix if m else "",
+        "bad": m.bad if m else "", "good": m.good if m else "",
+    }
+
+
 # ── the free tool: lint any prose, no tokens spent ───────────────────────────
 @app.post("/api/lint")
 def lint(body: LintIn):
@@ -167,11 +185,8 @@ def lint(body: LintIn):
     return {
         "chars": len(body.text),
         "score": style_score(body.text, target_chars=body.target_chars),
-        "violations": [
-            {"rule": v.rule, "severity": v.severity, "count": v.count,
-             "limit": v.limit, "evidence": v.evidence}
-            for v in vs
-        ],
+        "pass_score": PASS_SCORE,
+        "violations": [_violation_json(v) for v in vs],
     }
 
 
@@ -200,6 +215,40 @@ def prompt_put(name: str, body: PromptIn):
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     return {"name": name, "text": load_prompt(name), "problems": validate_prompt(name)}
+
+
+# ── canon editing (author has the final say; storage already supported it) ───
+@app.get("/api/projects/{pid}/canon")
+def canon_get(pid: str):
+    store = CanonStore(_dir(pid) / "_novel")
+    if not (store.root / "canon.json").exists():
+        raise HTTPException(400, "아직 캐논이 없습니다 — 전제를 먼저 확정하세요")
+    return store.load_canon().model_dump(mode="json")
+
+
+@app.put("/api/projects/{pid}/canon")
+def canon_put(pid: str, body: CanonIn):
+    """Hand-edit the canon instead of regenerating the whole thing.
+
+    Regeneration is a gamble: it re-rolls the parts the author already liked.
+    Edits are marked `author` so a future Canonicalizer can avoid overwriting
+    them (provenance, per the reviewer's suggestion).
+    """
+    from ..artifacts import Canon
+
+    store = CanonStore(_dir(pid) / "_novel")
+    try:
+        canon = Canon.model_validate(body.canon)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"캐논 형식이 올바르지 않습니다: {str(e)[:300]}") from e
+    previous = store.load_canon()
+    canon.version = previous.version + 1
+    canon.last_modified_by = "author"
+    store.save_canon(canon)
+    state = _load(pid)
+    state["canon"] = canon.model_dump(mode="json")
+    _save(pid, state)
+    return state["canon"]
 
 
 # ── pipeline ─────────────────────────────────────────────────────────────────
@@ -338,19 +387,10 @@ def episode(pid: str, body: DraftIn):
 
         (_dir(pid) / f"ep{body.episode:02d}.txt").write_text(draft.prose, encoding="utf-8")
 
-        # Commit to the store so the NEXT episode can see this one (ContextPack
-        # includes K=1 previous episode verbatim). NOTE: canon itself does not yet
-        # advance — the Canonicalizer is not implemented, see docs/GUIDE.md.
-        import hashlib
-
-        from ..artifacts import EpisodeRecord
-
-        store.commit_episode(EpisodeRecord(
-            episode_number=body.episode,
-            prose=draft.prose,
-            accepted_draft_hash=hashlib.sha256(draft.prose.encode()).hexdigest()[:16],
-            beat_tags=beats.beat_types(),
-        ))
+        # Advance every cross-episode ledger and persist the episode.
+        # (Previously rhythm/foreshadow were loaded but never saved, so pacing
+        #  debt and foreshadow deadlines reset on every episode.)
+        commit_episode_state(store, draft, beats)
         out = {
             "episode": body.episode,
             "beat_sheet": beats.model_dump(mode="json"),
@@ -362,11 +402,9 @@ def episode(pid: str, body: DraftIn):
             "iterations": result.iterations if result else 0,
             "passed": result.passed if result else None,
             "fact_requests": [f.question for f in draft.fact_requests],
-            "violations": [
-                {"rule": v.rule, "severity": v.severity, "count": v.count, "limit": v.limit,
-                 "evidence": v.evidence}
-                for v in lint_prose(draft.prose, target_chars=beats.length_target)
-            ],
+            "violations": [_violation_json(v) for v in
+                           lint_prose(draft.prose, target_chars=beats.length_target)],
+            "pass_score": PASS_SCORE,
         }
         state.setdefault("episodes", {})[str(body.episode)] = {
             k: out[k] for k in ("chars", "score", "first_score", "iterations", "passed")

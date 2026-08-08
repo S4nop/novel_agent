@@ -125,6 +125,9 @@ class GlossaryEntry(BaseModel):
 class Canon(BaseModel):
     version: int = 0
     genre_profile_version: int = 1
+    # provenance: an author edit must not be silently overwritten by the
+    # Canonicalizer later (reviewer suggestion, added before that node exists)
+    last_modified_by: str = "llm"      # "llm" | "author"
     characters: dict[str, CharacterCard] = Field(default_factory=dict)
     world_rules: list[WorldRule] = Field(default_factory=list)
     glossary: list[GlossaryEntry] = Field(default_factory=list)

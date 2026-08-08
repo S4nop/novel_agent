@@ -169,3 +169,57 @@ def test_saving_a_valid_prompt_edit_persists(client, tmp_path, monkeypatch):
     r = client.put("/api/prompts/genre_inference", json={"text": "수정본 ${idea}"})
     assert r.status_code == 200
     assert "수정본" in (tmp_path / "genre_inference.md").read_text(encoding="utf-8")
+
+
+def test_lint_response_explains_why_and_how_to_fix(client):
+    # self-praise must be in NARRATION — inside dialogue it is a character speaking
+    r = client.post("/api/lint", json={"text": '역시 나였다.\n"그렇군."'}).json()
+    assert r["pass_score"] == 85
+    v = next(x for x in r["violations"] if x["rule"] == "자기 칭찬 서술")
+    assert v["why"] and v["fix"]
+    assert "오글거림" in v["why"]
+    assert v["bad"] and v["good"]          # concrete contrast pair
+
+
+# ── canon editing (tester feedback 2) ────────────────────────────────────────
+def _seed_canon(pid):
+    from novel_agent.canon_store import CanonStore
+    from .factories import canon, genre_profile, north_star, voice_bible
+    store = CanonStore(web._root() / pid / "_novel")
+    store.initialize(genre_profile=genre_profile(), north_star=north_star(),
+                     canon=canon(), voice_bible=voice_bible())
+    return store
+
+
+def test_canon_can_be_read_back(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_canon(pid)
+    c = client.get(f"/api/projects/{pid}/canon").json()
+    assert "김현우" in c["characters"]
+
+
+def test_author_can_hand_edit_canon_without_regenerating(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_canon(pid)
+    c = client.get(f"/api/projects/{pid}/canon").json()
+    c["characters"]["김현우"]["immutable_descriptors"] = ["오른쪽 눈썹의 흉터"]
+
+    r = client.put(f"/api/projects/{pid}/canon", json={"canon": c})
+    assert r.status_code == 200
+    saved = store.load_canon()
+    assert saved.characters["김현우"].immutable_descriptors == ["오른쪽 눈썹의 흉터"]
+    assert saved.version == 1                      # bumped
+    assert saved.last_modified_by == "author"      # provenance recorded
+
+
+def test_malformed_canon_is_rejected_and_the_old_one_survives(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_canon(pid)
+    r = client.put(f"/api/projects/{pid}/canon", json={"canon": {"characters": "not-a-dict"}})
+    assert r.status_code == 400
+    assert "김현우" in store.load_canon().characters
+
+
+def test_canon_read_requires_setup_first(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    assert client.get(f"/api/projects/{pid}/canon").status_code == 400
