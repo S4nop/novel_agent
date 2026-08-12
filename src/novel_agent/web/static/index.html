@@ -229,7 +229,9 @@ async function saveAnswers(){
     const free = document.querySelector(`[data-free="${i}"]`).value.trim();
     const sel = document.querySelector(`input[name="q${i}"]:checked`);
     let a = free || (sel && sel.value!=='__d' ? sel.value : q.default);
-    return {topic:q.topic, question:q.question, answer:a};
+    // hard_rule must ride along: dropping it demotes an absolute prohibition
+    // ("이 세계에 암호화폐는 없다") to a soft preference the model may override.
+    return {topic:q.topic, question:q.question, answer:a, hard_rule:!!q.hard_rule};
   });
   applyState(await api(`/api/projects/${PID}/answers`,'POST',{answers}));
   log('답변 저장 — 이후 모든 설정이 이 답변을 따릅니다');

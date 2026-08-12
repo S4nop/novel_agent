@@ -71,6 +71,28 @@ def test_answers_enrich_the_idea_and_forbid_inventing_beyond_them(client):
     assert "새로 상상하지 마세요" in st["enriched_idea"]
 
 
+def test_a_forbidden_setting_answer_binds_as_non_negotiable_not_a_preference(client):
+    """The author saying "this must not exist" is not a preference.
+
+    Regression: the console posted answers without `hard_rule`, so a prohibition
+    was silently demoted into the soft "작가가 정한 방향(선호)" block that the model
+    is allowed to interpret. The separation existed in interview.py but was dead
+    code — nothing in production ever set the flag.
+    """
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    st = client.post(f"/api/projects/{pid}/answers", json={"answers": [
+        {"topic": "절대 금지 설정", "question": "없어야 하는 것?",
+         "answer": "암호화폐, 생체 데이터", "hard_rule": True},
+        {"topic": "세계관 밀도", "question": "밀도?", "answer": "가볍게"},
+    ]}).json()
+    enriched = st["enriched_idea"]
+    forbidden, preference = enriched.index("절대 금지"), enriched.index("선호")
+    # the prohibition must appear in the non-negotiable block, above preferences
+    assert forbidden < preference
+    assert "암호화폐, 생체 데이터" in enriched[forbidden:preference]
+    assert "가볍게" in enriched[preference:]
+
+
 def test_episode_requires_a_locked_premise_first(client):
     pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
     r = client.post(f"/api/projects/{pid}/episode", json={"episode": 1})

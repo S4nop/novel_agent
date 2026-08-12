@@ -62,7 +62,10 @@ def main() -> None:
     if a.answers:
         import json
 
-        prior = [Answer(topic=x["topic"], question=x.get("question", ""), answer=x["answer"])
+        # hard_rule must survive the replay file, or a prohibition the author
+        # answered is demoted to a mere preference on the next run.
+        prior = [Answer(topic=x["topic"], question=x.get("question", ""),
+                        answer=x["answer"], hard_rule=bool(x.get("hard_rule", False)))
                  for x in json.loads(pathlib.Path(a.answers).read_text(encoding="utf-8"))]
         idea = enrich_idea(a.idea, prior)
         print(f"\n■ 작가가 정한 방향 {len(prior)}건 반영")
@@ -80,7 +83,8 @@ def main() -> None:
             except EOFError:
                 raw = ""
             ans = resolve_answer(q, raw)
-            answers.append(Answer(topic=q.topic, question=q.question, answer=ans))
+            answers.append(Answer(topic=q.topic, question=q.question, answer=ans,
+                                  hard_rule=q.hard_rule))
             print(f"  → {ans}")
         idea = enrich_idea(a.idea, answers)
         (out).mkdir(parents=True, exist_ok=True)
