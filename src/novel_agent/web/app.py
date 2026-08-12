@@ -415,12 +415,19 @@ def episode(pid: str, body: DraftIn):
         # accumulating canon damage.
         continuity = check_continuity(llm, draft, beats, canon)
 
+        # The prose file is always written — the author must be able to read a
+        # rejected draft. Canon is a different matter.
         (_dir(pid) / f"ep{body.episode:02d}.txt").write_text(draft.prose, encoding="utf-8")
 
-        # Advance every cross-episode ledger and persist the episode.
-        # (Previously rhythm/foreshadow were loaded but never saved, so pacing
-        #  debt and foreshadow deadlines reset on every episode.)
-        commit_episode_state(store, draft, beats)
+        # Advance the cross-episode ledgers ONLY on a passing gate. Committing a
+        # continuity-blocked episode would write the contradiction into canon and
+        # plant its 떡밥, i.e. the gate would label the failure while letting the
+        # damage through — and a retry would re-plant the same seeds under new
+        # ids, pushing 완결 further away each time.
+        blocked = blocks_acceptance(continuity)
+        committed = not blocked and (result.passed if result else True)
+        if committed:
+            commit_episode_state(store, draft, beats)
         out = {
             "episode": body.episode,
             "beat_sheet": beats.model_dump(mode="json"),
@@ -432,10 +439,11 @@ def episode(pid: str, body: DraftIn):
                                  forbidden_terms=forbidden),
             "iterations": result.iterations if result else 0,
             # a continuity blocker overrides a passing style score (hard gate)
-            "passed": (bool(result.passed) and not blocks_acceptance(continuity))
-                      if result else None,
+            "passed": (bool(result.passed) and not blocked) if result else None,
             "continuity": [_violation_json(v) for v in continuity],
-            "continuity_blocked": blocks_acceptance(continuity),
+            "continuity_blocked": blocked,
+            # was this episode written into canon, or held back for review?
+            "committed": committed,
             "fact_requests": [f.question for f in draft.fact_requests],
             "violations": [_violation_json(v) for v in
                            lint_prose(draft.prose, target_chars=beats.length_target,

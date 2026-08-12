@@ -216,3 +216,31 @@ class TestForbiddenTerms:
     def test_no_terms_configured_changes_nothing(self):
         prose = "평범한 문장이다.\n" * 8
         assert lint_prose(prose) == lint_prose(prose, forbidden_terms=[])
+
+    # ── regressions found by adversarial audit ────────────────────────────
+    def test_a_prohibition_written_as_a_sentence_still_yields_a_term(self):
+        """FATAL bug: only bare comma lists worked. An author writing
+        "이 세계에 암호화폐는 없습니다" produced one unmatchable whole-sentence
+        term, so the banned noun still scored a clean 100."""
+        for phrasing in ["이 세계에 암호화폐는 없습니다",
+                         "암호화폐 금지",
+                         "암호화폐는 등장하지 않습니다",
+                         "암호화폐를 쓰지 마세요"]:
+            assert "암호화폐" in forbidden_terms_from(hard_rules=[phrasing]), phrasing
+
+    def test_list_joining_particles_split_into_separate_terms(self):
+        terms = forbidden_terms_from(hard_rules=["환생이나 회귀 트로프는 쓰지 마세요"])
+        assert "환생" in terms
+
+    def test_a_banned_term_does_not_match_as_a_suffix_of_another_word(self):
+        """'칩' must not flag '칩거'; trailing particles must still match."""
+        assert [v for v in lint_prose("암호화폐는 사라졌다.\n" * 8,
+                                      forbidden_terms=["암호화폐"])
+                if v.rule == "작가 금기어"]
+        assert not [v for v in lint_prose("가상암호화폐만 남았다.\n" * 8,
+                                          forbidden_terms=["화폐"])
+                    if v.rule == "작가 금기어"]
+
+    def test_ordinary_words_containing_a_joiner_are_not_shredded(self):
+        """The `나` split must not turn 하나 into a stray one-syllable term."""
+        assert forbidden_terms_from(hard_rules=["하나 둘 셋 금지"]) == ["하나 둘 셋"]

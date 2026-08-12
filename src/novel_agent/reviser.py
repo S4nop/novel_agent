@@ -66,12 +66,21 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
 
 
 def _fitness(draft: Draft, target: int,
-             forbidden_terms: list[str] | None = None) -> tuple[int, int]:
-    """Ranking key for keep-best. Length compliance is a GATE criterion, so it
-    outranks style score: a length-correct draft beats a short one at equal score.
-    (Style score alone is blind to this — trading one violation for another keeps
-    the number identical while the draft genuinely improves.)"""
-    return (0 if length_findings(draft, target) else 1,
+             forbidden_terms: list[str] | None = None,
+             extra_findings=None) -> tuple[int, int, int]:
+    """Ranking key for keep-best, most significant criterion first.
+
+    Continuity outranks everything: a canon break is a hard gate failure, so a
+    candidate that fixes one is better even at a worse style score. Length is
+    next (also a gate criterion) — a length-correct draft beats a short one at
+    equal score. Style score alone is blind to both: trading one violation for
+    another keeps the number identical while the draft genuinely improves.
+    """
+    blockers = 0
+    if extra_findings is not None:
+        blockers = sum(1 for v in extra_findings(draft) if v.severity == "blocker")
+    return (-blockers,
+            0 if length_findings(draft, target) else 1,
             style_score(draft.prose, target_chars=target,
                         forbidden_terms=forbidden_terms))
 
@@ -94,7 +103,7 @@ def revise_draft(
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
     best = draft
-    best_fit = _fitness(draft, target_chars, forbidden_terms)
+    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings)
     iterations = 0
 
     for _ in range(max_iterations):
@@ -125,7 +134,7 @@ def revise_draft(
             fact_requests=requests or draft.fact_requests,
         )
         # keep-best: an edit that makes things worse is discarded
-        fit = _fitness(candidate, target_chars, forbidden_terms)
+        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings)
         if fit > best_fit or (
             fit == best_fit
             and abs(candidate.char_count - target_chars) < abs(best.char_count - target_chars)

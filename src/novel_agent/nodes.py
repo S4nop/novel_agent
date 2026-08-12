@@ -222,6 +222,25 @@ def _magnitude(raw: str) -> SeedMagnitude:
     return SeedMagnitude.MAJOR if "major" in raw.lower() else SeedMagnitude.MINOR
 
 
+def _resolve_seed_ids(raw: list[str], foreshadow: ForeshadowLedger) -> list[str]:
+    """Map whatever the planner wrote back onto real seed ids.
+
+    Tolerates the bracketed form the prompt itself displays, stray whitespace,
+    case, and a trailing description. Anything still unmatched is dropped — but
+    silently dropping a VALID id was the bug, not the guard.
+    """
+    by_lower = {k.lower(): k for k in foreshadow.seeds}
+    out: list[str] = []
+    for item in raw or []:
+        token = str(item).strip().strip("[]()<>").strip()
+        key = by_lower.get(token.lower())
+        if key is None:                      # "seed-0001 (사라진 호패)" → first word
+            key = by_lower.get(token.split()[0].lower()) if token.split() else None
+        if key and key not in out:
+            out.append(key)
+    return out
+
+
 def plan_episode(
     llm: LLM,
     *,
@@ -274,13 +293,21 @@ def plan_episode(
                 proposed_seed_id=f"p{episode_number}-{i}",
                 description=s.description,
                 magnitude=_magnitude(s.magnitude),
-                due_by_ep=s.due_by_ep or None,
+                # A MAJOR seed with no deadline is unpayable: due() skips it, so
+                # its id is never shown to the planner, while unpaid_major()
+                # counts it forever — completion_ready() would stay False for the
+                # life of the run. Give it the genre's catharsis window instead.
+                due_by_ep=(s.due_by_ep or None) or (
+                    episode_number + max(1, profile.target_catharsis_cadence) * 3
+                    if _magnitude(s.magnitude) is SeedMagnitude.MAJOR else None),
             )
             for i, s in enumerate(draft.seeds_to_plant, 1)
         ],
         # only IDs that really exist may be marked paid — a hallucinated id would
-        # otherwise silently no-op in the canonicalizer, leaving the 떡밥 open
-        seeds_to_pay=[s for s in draft.seeds_to_pay if s in foreshadow.seeds],
+        # otherwise silently no-op in the canonicalizer, leaving the 떡밥 open.
+        # Normalized first: the prompt renders "[seed-0001]", so a model copying
+        # what it sees returns the bracketed form, which bare membership dropped.
+        seeds_to_pay=_resolve_seed_ids(draft.seeds_to_pay, foreshadow),
         closing_cliffhanger=draft.closing_cliffhanger,
         length_target=profile.episode_length_target,
         pov=profile.pov,

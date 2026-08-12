@@ -356,9 +356,16 @@ def lint_prose(text: str, *, target_chars: int = 5200,
     # One violation, not one per term: N prohibitions breached is a single kind of
     # failure, and firing N blockers would swamp the score and drown the rest of
     # the report the reviser needs to act on.
-    breached = [t for t in (forbidden_terms or ()) if t in text]
+    # Left-boundary guard, same as _word_hits: a banned term must not match as a
+    # SUFFIX inside a longer word (banning '칩' should not flag '칩거'). Trailing
+    # particles are fine — '암호화폐는' still matches '암호화폐'.
+    breach_counts = {
+        term: len(re.findall(r"(?<![가-힣])" + re.escape(term), text))
+        for term in (forbidden_terms or ())
+    }
+    breached = [t for t, n in breach_counts.items() if n]
     if breached:
-        add("작가 금기어", "blocker", sum(text.count(t) for t in breached), "0회",
+        add("작가 금기어", "blocker", sum(breach_counts[t] for t in breached), "0회",
             evidence="작가가 금지한 표현: " + ", ".join(f"'{t}'" for t in breached[:5]),
             limit_num=0)
 
@@ -369,28 +376,61 @@ def lint_prose(text: str, *, target_chars: int = 5200,
 # Korean puts the exemplars BEFORE the category: "X, Y 같은 Z" means X and Y are
 # the forbidden things and Z merely names the category. Truncating at the marker
 # keeps 암호화폐/생체 데이터 and discards 현대 IT 개념, which would false-positive.
-_CATEGORY_MARKERS = r"\s*(?:같은|같은것|등의|등등|등|류의|류|따위|처럼|스러운)\b.*$"
+_CATEGORY_MARKERS = re.compile(r"\s*(?:같은|같은것|등의|등등|등|류의|류|따위|처럼|스러운)(?:\s|$|[,.]).*")
+# The prohibition VERB PHRASE. Authors answer in sentences ("이 세계에 암호화폐는
+# 없습니다"), and keeping the sentence whole makes a term that can never match
+# prose — the failure this whole rule exists to prevent. Cut the tail off.
+_PROHIBITION_TAIL = re.compile(
+    r"(?:는|은|이|가|을|를|도|만)?\s*(?:없|있지|등장하지|나오지|쓰지|사용하지|넣지|"
+    r"포함하지|언급하지|다루지|안\s|않)\S*.*")
+# Framing that precedes the actual noun.
+_LEAD_SCAFFOLD = re.compile(r"^\s*(?:이|본|해당)?\s*(?:세계관?|작품|소설|이야기)?에서?는?\s*"
+                            r"|^\s*(?:특히|절대|되도록|가급적)\s*")
 # Structural words only — no genre nouns, or this smuggles setting back into code.
-_TERM_NOISE = {"금지", "없음", "없다", "없이", "제외", "그리고", "또는", "및",
-               "이런", "그런", "것", "것들", "안됨", "안돼", "말것", "사용", "관련"}
+_TERM_NOISE = {"금지", "없음", "없다", "없이", "제외", "그리고", "또는", "및", "특히",
+               "이런", "그런", "것", "것들", "안됨", "안돼", "말것", "사용", "관련",
+               "세계", "세계관", "작품", "소설", "이야기", "설정", "요소", "개념", "표현"}
+# Particles that trail a noun in a list ("환생이나 회귀" → 환생, 회귀).
+_TRAILING_PARTICLE = re.compile(r"(?:이나|이랑|과|와|은|는|이|가|을|를|도|의|에|나)$")
+# A prohibition can also be stated as a trailing noun ("암호화폐 금지").
+_TRAILING_BAN_NOUN = re.compile(r"\s*(?:금지|제외|불가|배제|안됨|안\s*됨|미등장)\s*$")
+
+
+def _clean_term(chunk: str) -> str:
+    t = _LEAD_SCAFFOLD.sub("", chunk)
+    t = _TRAILING_BAN_NOUN.sub("", t)
+    t = _PROHIBITION_TAIL.sub("", t)
+    t = t.strip(" '\"’”「」『』()[]{}·…．.!?~-").strip()
+    # strip one trailing particle, but never down to nothing meaningful
+    stripped = _TRAILING_PARTICLE.sub("", t).strip()
+    if len(stripped) >= 2:
+        t = stripped
+    return t
 
 
 def forbidden_terms_from(hard_rules: list[str] | None = None,
                          anti_patterns: list[str] | None = None) -> list[str]:
     """Turn free-text prohibitions into matchable terms.
 
-    The author answers in prose ("암호화폐, 생체 데이터 같은 현대 IT 개념"), so the
-    whole sentence would never substring-match. Multi-word phrases are kept
-    intact ("생체 데이터" stays one term) — splitting to bare words would make
-    common nouns like 데이터 match innocent prose.
+    Authors do not answer in tidy noun lists. All of these must yield 암호화폐:
+    "암호화폐, 생체 데이터 같은 현대 IT 개념" · "이 세계에 암호화폐는 없습니다" ·
+    "암호화폐 금지". Multi-word phrases stay intact ("생체 데이터" is one term) —
+    splitting to bare nouns would make 데이터 flag innocent modern prose.
     """
     terms: list[str] = []
     for raw in list(hard_rules or []) + list(anti_patterns or []):
-        head = re.sub(_CATEGORY_MARKERS, "", (raw or "").strip())
-        for chunk in re.split(r"[,،、/\n·]|\s+및\s+|\s+또는\s+", head):
-            t = chunk.strip(" '\"’”「」『』()[]{}·…．.!?~-").strip()
-            if len(t) >= 2 and t not in _TERM_NOISE:
-                terms.append(t)
+        for sentence in re.split(r"[.\n]", raw or ""):
+            head = _CATEGORY_MARKERS.sub("", sentence.strip())
+            # `이나`/`나` also join list items, often with no leading space
+            # ("환생이나 회귀") — split there too or both nouns fuse into one term.
+            for chunk in re.split(
+                    r"[,،、/·]|\s+및\s+|\s+또는\s+|(?<=[가-힣])이나\s+"
+                    # bare `나` joins too ("데이터나 칩"); require 2 syllables
+                    # before it so ordinary words like 하나/어쩌나 do not split
+                    r"|(?<=[가-힣]{2})나\s+", head):
+                t = _clean_term(chunk)
+                if len(t) >= 2 and t not in _TERM_NOISE:
+                    terms.append(t)
     # dedupe, longest first so the most specific term is reported as evidence
     return sorted(dict.fromkeys(terms), key=len, reverse=True)
 

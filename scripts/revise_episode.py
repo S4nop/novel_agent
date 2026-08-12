@@ -59,12 +59,26 @@ def main() -> None:
         summary=store.load_summary(), current_episode=a.episode, previous_episode=None,
     )
 
-    result = revise_draft(llm, draft, pack, target_chars=target, max_iterations=a.iterations)
+    from novel_agent.continuity import (
+        blocks_acceptance, check_continuity, deterministic_findings,
+    )
+
+    result = revise_draft(llm, draft, pack, target_chars=target,
+                          max_iterations=a.iterations,
+                          extra_findings=lambda d: deterministic_findings(d, beats, canon))
     out = run / f"ep{a.episode:02d}_revised.txt"
     out.write_text(result.draft.prose, encoding="utf-8")
 
+    # Track A — same hard gate as the other entry points, or a re-edited episode
+    # could pass here while failing in the console.
+    cont = check_continuity(llm, result.draft, beats, canon)
+    gate_ok = bool(result.passed) and not blocks_acceptance(cont)
     print(f"\n■ 수정 {result.iterations}회 → {result.draft.char_count}자 · "
-          f"문체 {result.score}/100 · {'통과' if result.passed else '미통과'}")
+          f"문체 {result.score}/100 · {'통과' if gate_ok else '미통과'}")
+    print(f"■ 연속성 검사: {len(cont)}건"
+          + (" · 차단됨" if blocks_acceptance(cont) else ""))
+    for v in cont:
+        print(f"    [{v.severity}] {v.rule} — {v.evidence}")
     for v in result.remaining:
         print(f"    {v}")
     print(f"→ {out}")

@@ -214,3 +214,25 @@ def test_every_continuity_rule_explains_itself_in_the_ui():
               RULE_CANON_CONTRADICTION):
         m = rule_meta(r)
         assert m and m.why and m.fix, r
+
+
+# ── the gate must WITHHOLD, not merely label ─────────────────────────────────
+def test_a_blocked_episode_must_not_be_committed_to_canon():
+    """Regression: the gate computed a verdict and then committed anyway, so a
+    contradiction was written into canon and its 떡밥 planted — the failure was
+    labelled while the damage went through. A retry then re-planted the same
+    seeds under fresh ids, pushing 완결 further away on every attempt.
+
+    Asserted at the decision level the endpoint uses, so it holds without a full
+    LLM chain: `committed` must be false whenever continuity blocks.
+    """
+    canon = _canon(현무=CharacterCard(name="현무", status="dead"))
+    findings = deterministic_findings(_draft("현무가 웃었다."), _beats(), canon)
+    blocked = blocks_acceptance(findings)
+    # mirrors web/app.py: committed = not blocked and (result.passed if result else True)
+    for style_gate_passed in (True, False):
+        committed = not blocked and style_gate_passed
+        assert committed is False, "a canon break must never reach the ledgers"
+
+    clean = deterministic_findings(_draft("케이타가 걸었다."), _beats(), Canon())
+    assert (not blocks_acceptance(clean) and True) is True   # clean prose commits

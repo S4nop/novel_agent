@@ -224,3 +224,36 @@ def test_planner_inherits_length_and_pov_from_genre_profile():
     gp = genre_profile()
     assert bs.length_target == gp.episode_length_target
     assert bs.pov == gp.pov
+
+
+def test_a_bracketed_seed_id_is_resolved_not_dropped():
+    """Regression: the prompt renders "- [seed-0001] …", so a model copying what
+    it sees returns the bracketed token — bare membership silently dropped it,
+    producing the exact "떡밥 left open" outcome the filter was meant to prevent."""
+    from novel_agent.artifacts import PlannedSeed
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="사라진 호패",
+                                 due_by_ep=3), episode=1)
+    for written in (f"[{seed.seed_id}]", f"  {seed.seed_id} ",
+                    seed.seed_id.upper(), f"{seed.seed_id} (사라진 호패)"):
+        draft = _bs_draft()
+        draft.seeds_to_pay = [written]
+        bs = _plan(ScriptedLLM(draft), foreshadow=led, episode=3)
+        assert bs.seeds_to_pay == [seed.seed_id], written
+
+
+def test_a_major_seed_without_a_deadline_gets_one_so_it_can_ever_be_paid():
+    """Regression: due() skips due_by_ep=None, so such a seed's id was never
+    shown to the planner, while unpaid_major() counted it forever —
+    completion_ready() could never become true for the life of the run."""
+    from novel_agent.artifacts import SeedMagnitude
+    from novel_agent.schemas import SeedDraft
+
+    draft = _bs_draft()
+    draft.seeds_to_plant = [SeedDraft(proposed_seed_id="p1", description="흑막",
+                                      magnitude="major", due_by_ep=0)]
+    bs = _plan(ScriptedLLM(draft), episode=1)
+    major = bs.seeds_to_plant[0]
+    assert major.magnitude is SeedMagnitude.MAJOR
+    assert major.due_by_ep is not None and major.due_by_ep > 1

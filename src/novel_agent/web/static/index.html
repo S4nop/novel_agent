@@ -306,11 +306,16 @@ async function writeEpisode(){
       episode:+$('#epNo').value, revise:$('#doRev').checked, iterations:+$('#iters').value});
     $('#prose').textContent = r.prose;
     const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
+    // The verdict pill must follow the GATE, not the style score: a
+    // continuity-blocked episode can score 100 and was rendering green.
+    const gate = r.passed===false || r.continuity_blocked ? 'bad'
+               : r.passed===true ? 'ok' : 'dim';
     $('#epScore').innerHTML =
       `<div class="row" style="margin-bottom:10px">
          <span class="score" style="color:var(--${cls==='ok'?'ok':cls==='warn'?'warn':'bad'})">${r.score}</span>
          <span class="k">/100 문체</span>
-         <span class="pill ${cls}">${r.passed?'통과':'미통과'}</span>
+         <span class="pill ${gate}">${r.passed?'통과':'미통과'}</span>
+         ${r.committed===false ? '<span class="pill warn">캐논 미반영 — 통과 시 반영</span>' : ''}
          <span class="pill dim">초고 ${r.first_score} → ${r.score}</span>
          <span class="pill dim">${r.chars}자 / 목표 ${r.target}</span>
          <span class="pill dim">수정 ${r.iterations}회</span>
