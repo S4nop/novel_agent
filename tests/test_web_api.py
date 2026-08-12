@@ -13,7 +13,7 @@ from novel_agent.web import app as web
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("NOVEL_PROJECTS_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("NOVEL_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("NOVEL_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("NOVEL_LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("NOVEL_LLM_MODEL", "test-model")
     web.load_settings.cache_clear() if hasattr(web.load_settings, "cache_clear") else None
     return TestClient(web.app)
@@ -22,7 +22,7 @@ def client(tmp_path, monkeypatch):
 # ── config ───────────────────────────────────────────────────────────────────
 def test_config_reports_provider_and_never_leaks_the_key(client):
     c = client.get("/api/config").json()
-    assert c["provider"] == "gemini"
+    assert c["provider"] == "anthropic"
     assert c["model"] == "test-model"
     assert c["key_present"] is True
     assert "test-key" not in str(c)          # only a short hint may appear

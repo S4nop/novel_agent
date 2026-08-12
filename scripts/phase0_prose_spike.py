@@ -153,7 +153,7 @@ def run(models: list[str], out_dir: pathlib.Path) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--models", default="gemini-3.6-flash,gemini-3.5-flash")
+    ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--out", default="data/phase0")
     a = ap.parse_args()
     run([m.strip() for m in a.models.split(",") if m.strip()], pathlib.Path(a.out))

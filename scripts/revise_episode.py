@@ -1,6 +1,6 @@
 """Re-lint and revise an already-drafted episode using its saved canon store.
 
-    python scripts/revise_episode.py --run data/run2 [--model gemini-3.5-flash]
+    python scripts/revise_episode.py --run data/run2 [--model claude-sonnet-5]
 
 Useful on its own (a re-edit pass) and cheap: it reuses the persisted Canon /
 VoiceBible / GenreProfile instead of re-running the whole setup chain.

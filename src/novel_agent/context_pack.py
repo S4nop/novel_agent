@@ -5,7 +5,11 @@ Assembles the context for drafting ONE episode within a fixed token budget:
   • cache-stable PREFIX — byte-stable for the whole run: built ONLY from the
     stable spine (system + NorthStar hard rules + locked VoiceBible + main-cast
     IMMUTABLE descriptors/voice + glossary + genre rubric). Evolving state never
-    enters it, so Gemini's implicit prefix caching keeps hitting.
+    enters it, so the prompt cache keeps hitting. On Anthropic this prefix is
+    sent as the system block carrying the one `cache_control` breakpoint
+    (llm.AnthropicLLM._system) — caching is a PREFIX match, so a single
+    non-deterministic byte here silently voids the discount for the whole run.
+    Watch Usage.cache_hit_rate: a persistent 0.0 means the prefix drifted.
   • volatile SUFFIX — rewritten per episode: Summary, current-status Canon
     slice, K=1 previous episode verbatim, BeatSheet, due foreshadows, and the
     RhythmState pacing directive.
@@ -14,8 +18,9 @@ Episode 1 builds with an empty Summary and no previous episode — deterministic
 omission, not an error (invariant #4).
 
 Token counting is injected. The default is a char-count stand-in; production
-injects Gemini's countTokens (Korean ≈ 1.2–1.5 tok/char,
-so budgets must be re-baselined on real text — DESIGN §5).
+injects the provider's count_tokens (Korean ≈ 1.2–1.5 tok/char, and the ratio
+differs per tokenizer — budgets must be re-baselined on real text after any
+model switch, DESIGN §5).
 """
 from __future__ import annotations
 

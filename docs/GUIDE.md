@@ -20,7 +20,7 @@ Being honest up front saves you an afternoon.
 | Plan and write **episode 1** in Korean, ~5,000자 | ✅ works |
 | Mechanically lint prose for amateur/유치 habits (free, no tokens) | ✅ works |
 | Bounded revise loop that improves the style score | ✅ works |
-| Provider-agnostic model config (Gemini / any OpenAI-compatible) | ✅ works |
+| Provider-agnostic model config (Anthropic / Gemini / any OpenAI-compatible) | ✅ works |
 | **Write episode 2 informed by episode 1's *canon*** | ⚠️ **partial** |
 | Continuity checking against canon (Track A) | ❌ not built |
 | Craft judging by an LLM (Track B) | ❌ not built |
@@ -44,7 +44,7 @@ Requires Python 3.11+.
 git clone <your-repo> && cd novel_agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,llm,web]'
-pytest                      # 84 tests, no API key needed
+pytest                      # 133 tests, no API key needed
 ```
 
 `pytest` passing without a key is intentional — the deterministic core (canon store,
@@ -58,7 +58,40 @@ ledgers, context pack, style lint) never touches the network.
 cp .env.example .env
 ```
 
-### Option A — Gemini (what this project was validated on)
+### Option A — Claude (the default)
+
+Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys).
+
+```ini
+NOVEL_LLM_PROVIDER=anthropic
+NOVEL_LLM_MODEL=claude-sonnet-5
+NOVEL_LLM_API_KEY=sk-ant-...
+NOVEL_PRICE_IN_PER_1M=3.00
+NOVEL_PRICE_OUT_PER_1M=15.00
+```
+
+Optional: `NOVEL_LLM_EFFORT=high` (`low` | `medium` | `high` | `xhigh` | `max`) sets how
+hard the model thinks. `high` is the default. Drop to `medium` to cut cost and latency on
+a long run; the style score tells you quickly whether it hurt.
+
+Three Claude-specific behaviors worth knowing, all handled in `llm.py`:
+
+- **Thinking shares the output budget.** Adaptive thinking is on by default and counts
+  against `max_tokens` along with the prose, so the adapter adds `THINKING_HEADROOM` to
+  every request. If you see `max_tokens 초과로 응답이 잘렸습니다`, raise it or lower `effort`.
+- **Prompt caching is explicit and fragile.** The story bible is sent as one cached
+  system block, and cached tokens cost 10% of the normal input price. Caching is a
+  *prefix match* — one nondeterministic byte (a timestamp, an unsorted dict) and the
+  whole discount silently disappears. The cost panel shows the hit rate. **0% on the
+  first few calls of a new project is normal** (each prefix has to be written before it
+  can be read, and plan calls and prose calls cache separately because the JSON schema
+  is part of the prefix). A rate still stuck at 0% after ~5 calls is the real warning.
+- **A refusal is not an error.** It arrives as a normal `200` with
+  `stop_reason: "refusal"`, so the adapter checks it before reading the text. Anthropic
+  has no safety-settings knob — dark content needs no configuration, but explicit sexual
+  content is prohibited by policy regardless of framing (already out of scope here).
+
+### Option B — Gemini
 
 Get a key at [aistudio.google.com](https://aistudio.google.com/apikey).
 
@@ -78,7 +111,7 @@ NOVEL_PRICE_OUT_PER_1M=7.50
 **rejects `safety_settings`**, and you need those relaxed for dark genre fiction
 (revenge, violence, villain POV). See `llm.py`.
 
-### Option B — any OpenAI-compatible provider
+### Option C — any OpenAI-compatible provider
 
 ```ini
 NOVEL_LLM_PROVIDER=openai
@@ -314,10 +347,12 @@ If your model fails #1 or #2, no amount of pipeline work fixes it.
 | Symptom | Cause / fix |
 |---|---|
 | `NOVEL_LLM_API_KEY is not set` | `.env` missing or wrong var name. Vars are `NOVEL_LLM_*` (not `NOVEL_GEMINI_*`). |
-| `429 / RESOURCE_EXHAUSTED` | Quota. Gemini free tier = ~20 req/day **per model**; daily reset is midnight **US Pacific**. Switch model or upgrade. |
+| `429 rate_limit_error` / `RESOURCE_EXHAUSTED` | Quota. On Anthropic, check your tier's limits in the console (Claude Sonnet 5 has its own pool). Gemini free tier = ~20 req/day **per model**, reset midnight **US Pacific**. |
+| `400 … temperature` / `budget_tokens` | Sonnet 5 rejects sampling params and thinking budgets. Don't add them — steer with the prompt, size with `NOVEL_LLM_EFFORT`. |
+| Cost panel shows a 0% cache hit rate | The stable prefix stopped being byte-stable, so every call pays full input price. Something nondeterministic leaked into the ContextPack prefix. |
 | `503 UNAVAILABLE` | Provider demand spike. The adapter already retries with backoff; wait or switch model. |
 | Empty / truncated reply | **Reasoning models spend `max_output_tokens` on thinking first.** A small budget returns garbage — raise `max_tokens`. |
-| `모델이 응답을 거부했거나 비어 있음` (422) | Safety filter or refusal. Check `llm.py` safety settings; note explicit sexual content is out of scope by policy. |
+| `모델이 응답을 거부했거나 비어 있음` (422) | Refusal or filter. On Anthropic the message carries `stop_reason=refusal` and a category; on Gemini check the safety settings in `llm.py`. Explicit sexual content is out of scope by policy on both. |
 | Draft is half the target length | Style rules make models terse. The revise loop treats shortfall as a finding — raise `iterations`. |
 | Glossary has 20+ invented terms | Interview answers were too loose. Explicitly state what must not exist. |
 | Prose feels childish | Almost always the *setup*, not the prose: over-invented world, or a tone you never specified. Redo the interview. |
@@ -348,7 +383,9 @@ compose.
 
 ## 10. Cost expectations
 
-Measured on Gemini 3.6 Flash (₩ at 1,400/USD):
+Measured on Gemini 3.6 Flash at $1.50/$7.50 (₩ at 1,400/USD). **On the current default,
+Claude Sonnet 5 at $3/$15, roughly double these figures** before prompt caching — the
+table has not been re-measured since the switch:
 
 | Operation | Calls | Cost |
 |---|---|---|
@@ -356,7 +393,7 @@ Measured on Gemini 3.6 Flash (₩ at 1,400/USD):
 | Genre + 3 premise candidates | 4 | ~₩130 |
 | Canon + voice bible | 1 | ~₩50 |
 | Episode: plan + draft + 2–3 revise passes | 5–6 | ~₩200–430 |
-| **Full setup + episode 1** | **~10** | **~₩430** |
+| **Full setup + episode 1** | **~10** | **~₩430** (≈₩900 on Sonnet 5) |
 
 Generation cost is trivial next to any commercial outcome. Per this project's market
 research, **distribution — not cost — is the binding constraint.** Do not optimize the

@@ -3,9 +3,10 @@
 Provider-agnostic: the model is chosen entirely from the environment, so
 swapping providers is a .env edit, not a code change. See `.env.example`.
 
-    NOVEL_LLM_PROVIDER = gemini | openai
-    NOVEL_LLM_MODEL    = gemini-3.6-flash | gpt-4o-mini | kimi-k3 | ...
+    NOVEL_LLM_PROVIDER = anthropic | gemini | openai
+    NOVEL_LLM_MODEL    = claude-sonnet-5 | gemini-3.6-flash | kimi-k3 | ...
     NOVEL_LLM_API_KEY  = ...
+    NOVEL_LLM_EFFORT   = low | medium | high | xhigh | max  (anthropic only)
     NOVEL_LLM_BASE_URL = (openai-compatible providers only)
 
 The deterministic core (artifacts, canon store, ledgers, context pack, lint)
@@ -38,15 +39,20 @@ class Settings(BaseSettings):
     ui_language: str = "ko"
 
     # ── LLM provider ────────────────────────────────────────────────────────
-    llm_provider: str = "gemini"          # "gemini" (native SDK) | "openai" (compatible)
-    llm_model: str = "gemini-3.6-flash"
+    llm_provider: str = "anthropic"       # "anthropic" | "gemini" | "openai"
+    llm_model: str = "claude-sonnet-5"
     llm_api_key: str = ""
     llm_base_url: str = ""                # required for provider=openai unless preset
     llm_preset: str = ""                  # optional key into KNOWN_BASE_URLS
+    # Reasoning depth (anthropic only). "high" is the Sonnet 5 API default;
+    # "medium" is the cost/latency step-down for a long unattended serial.
+    llm_effort: str = "high"
 
     # Pricing for the cost meter (USD per 1M tokens) — override per model.
-    price_in_per_1m: float = 1.50
-    price_out_per_1m: float = 7.50
+    # Defaults are claude-sonnet-5 standard rates ($2/$10 introductory
+    # through 2026-08-31; the standard rate keeps the meter honest after that).
+    price_in_per_1m: float = 3.00
+    price_out_per_1m: float = 15.00
     usd_krw: float = 1400.0
 
     # Root directory for projects created through the web UI.
@@ -64,6 +70,7 @@ class Settings(BaseSettings):
         return {
             "provider": self.llm_provider,
             "model": self.llm_model,
+            "effort": self.llm_effort,
             "base_url": self.resolved_base_url() or "(provider default)",
             "key_present": bool(self.llm_api_key),
             "key_hint": (self.llm_api_key[:6] + "…") if self.llm_api_key else "",

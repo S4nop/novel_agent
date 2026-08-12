@@ -12,6 +12,7 @@ dependencies = [
 # Deferred until the LLM nodes are built (Phase 1a graph). The deterministic
 # core (artifacts, canon store, ledgers, context pack) needs only pydantic.
 llm = [
+    "anthropic>=0.75",         # provider=anthropic (default: Claude Sonnet 5)
     "google-genai>=1.0",       # provider=gemini (native: safety settings, responseSchema)
     "openai>=1.40",            # provider=openai (any compatible endpoint)
 ]

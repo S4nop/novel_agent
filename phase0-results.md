@@ -1,5 +1,14 @@
 # Phase 0 — execution results (2026-07-29)
 
+> 🔁 **SUPERSEDED AS EVIDENCE (2026-08).** The project moved to **Claude Sonnet 5**
+> (DESIGN §5). Everything below is the accurate record of what was measured **on
+> Gemini 3.6 Flash** and is kept for that reason — but it says nothing about the
+> model now in use. The content-fit result in particular does not transfer:
+> Anthropic has no safety-settings layer, so that test must be re-run. The one
+> finding that is model-independent, and still the load-bearing one, is that
+> **neither model self-reported its invented facts** — the Track A continuity
+> checker remains necessary regardless of provider.
+
 Model: **Gemini 3.6 Flash** (single-model commitment, DESIGN §5).
 Generated through the real pipeline (canon store → ContextPackBuilder → Drafter),
 not a hand-held chat session. Reproduce with `python scripts/phase0_prose_spike.py`.

@@ -195,8 +195,17 @@ function applyState(st){
   renderCost(st.usage);
 }
 function renderCost(u){
-  if(!u || !u.calls){ $('#cost').textContent='비용 —'; return; }
-  $('#cost').textContent = `${u.calls} calls · ₩${u.krw}`;
+  if(!u || !u.calls){ $('#cost').textContent='비용 —'; $('#cost').title=''; return; }
+  // Cold start reads 0%: structured and text calls keep SEPARATE cache entries
+  // (the JSON schema is part of the prefix), so each variant writes once before
+  // it can be read. Only a sustained 0% means the prefix actually drifted (§5).
+  const hit = Math.round((u.cache_hit_rate || 0) * 100);
+  const cache = (u.calls > 1) ? ` · 캐시 ${hit}%` : '';
+  $('#cost').textContent = `${u.calls} calls · ₩${u.krw}${cache}`;
+  $('#cost').title = (u.calls >= 5 && hit === 0)
+    ? '캐시 적중 0% — 고정 프리픽스가 매번 달라지고 있습니다(입력 비용 전액 청구).'
+    : `입력 ${u.input_tokens} · 캐시읽기 ${u.cached_tokens||0} · 출력 ${u.output_tokens}`
+      + (u.calls > 1 && hit === 0 ? ' — 초기 몇 콜은 캐시 기록 단계라 0%가 정상입니다.' : '');
 }
 
 // ── interview ────────────────────────────────────────────────────────────────

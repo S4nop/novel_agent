@@ -1,8 +1,8 @@
 """Shared data artifacts — the vocabulary every component reads/writes (DESIGN §1).
 
 These Pydantic models are the single source of truth: they back persistence,
-the FastAPI schemas (later), and the LLM structured-output schema. Gemini's
-structured output is a subset of JSON Schema, so schemas are kept SHALLOW
+the FastAPI schemas (later), and the LLM structured-output schema. Structured
+output is a subset of JSON Schema on every provider, so schemas are kept SHALLOW
 (no self-referential models; ≤2–3 nesting levels); rich constraints are
 enforced in validators after parsing, not in the LLM-facing schema.
 
@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 
 # ── enums ────────────────────────────────────────────────────────────────────
 class ContentRating(str, Enum):
-    # Explicit-19+ is out of scope (Gemini usage policy — see DESIGN.md §5).
+    # Explicit-19+ is out of scope (provider usage policy — see DESIGN.md §5;
+    # Anthropic prohibits sexually explicit content regardless of framing).
     # MATURE = dark/violent/suggestive but non-explicit.
     ALL = "전연령"
     T15 = "15+"

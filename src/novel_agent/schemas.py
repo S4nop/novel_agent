@@ -1,7 +1,8 @@
 """LLM-facing DTOs — deliberately SHALLOW (DESIGN §5).
 
-Gemini's `responseSchema` accepts only a JSON-Schema subset: no `dict` with
-arbitrary keys, no self-reference, shallow nesting. Our domain artifacts
+Structured-output schemas accept only a JSON-Schema subset — no `dict` with
+arbitrary keys, no self-reference, shallow nesting (true of both Anthropic's
+`output_config.format` and Gemini's `responseSchema`). Our domain artifacts
 (artifacts.py) use dicts and nested models because that's right for the domain —
 so the LLM speaks these flat DTOs and `nodes.py` maps them onto the artifacts.
 Rich validation happens in Pydantic AFTER parsing, never in the LLM schema.

@@ -11,8 +11,11 @@ Also: architecture & rationale [`DESIGN.md`](./DESIGN.md) · prose rules
 [`phase0-results.md`](./phase0-results.md)
 
 **Current state:** a strong **first-episode / pilot** generator (idea → interview → genre →
-premise → canon → episode 1 with a style-linted revise loop). The Canonicalizer is not yet
-implemented, so canon does not accumulate across episodes — see the guide's status table.
+premise → canon → episode 1 with a style-linted revise loop). The Canonicalizer's
+deterministic half is in place (rhythm debt, foreshadow deadlines, summary and episode
+records now persist across episodes); its LLM half — extracting a `CanonDelta` from
+accepted prose — is not, so character/world facts do not yet accumulate automatically.
+See the guide's status table.
 
 - **Users are Korean → the agent speaks Korean** (interview, gates, prose).
 - Human-in-the-loop **co-writer**: the author locks the premise, the voice, and the world.
@@ -30,18 +33,22 @@ python -m novel_agent.web       # → http://127.0.0.1:8000
 ## Configuration (`.env`)
 
 ```ini
-NOVEL_LLM_PROVIDER=gemini          # gemini (native SDK) | openai (any compatible endpoint)
-NOVEL_LLM_MODEL=gemini-3.6-flash
+NOVEL_LLM_PROVIDER=anthropic       # anthropic (default) | gemini | openai
+NOVEL_LLM_MODEL=claude-sonnet-5
 NOVEL_LLM_API_KEY=...
+# NOVEL_LLM_EFFORT=high            # low | medium | high | xhigh | max (anthropic only)
 # NOVEL_LLM_PRESET=moonshot        # openai | moonshot | deepseek | upstage | openrouter
 # NOVEL_LLM_BASE_URL=http://localhost:11434/v1   # or any custom endpoint
-NOVEL_PRICE_IN_PER_1M=1.50         # cost meter, match your model
-NOVEL_PRICE_OUT_PER_1M=7.50
+NOVEL_PRICE_IN_PER_1M=3.00         # cost meter, match your model
+NOVEL_PRICE_OUT_PER_1M=15.00
 ```
 
-`provider=gemini` uses the native `google-genai` SDK deliberately: the OpenAI-compat
-endpoint **rejects `safety_settings`**, and safety control is required for dark genre
-fiction. See `llm.py`.
+The default is **Claude Sonnet 5** via the official `anthropic` SDK. Two things it does
+that Gemini didn't: prompt caching is **explicit** (one `cache_control` breakpoint on the
+ContextPack's stable prefix — watch `Usage.cache_hit_rate`), and adaptive thinking shares
+the `max_tokens` budget with the prose, so the adapter reserves headroom. `provider=gemini`
+still uses the native `google-genai` SDK deliberately: its OpenAI-compat endpoint **rejects
+`safety_settings`**, which that provider needs for dark genre fiction. See `llm.py`.
 
 ## Test console (local web UI)
 
@@ -86,15 +93,15 @@ src/novel_agent/
   drafter.py       # ContextPack → Draft (+ [[FACT:]] extraction)
   reviser.py       # bounded revise loop, keep-best
   style.py         # Korean prose lint (Track C) — makes 유치함 countable
-  llm.py           # provider adapter (Gemini native / OpenAI-compatible)
+  llm.py           # provider adapter (Anthropic / Gemini native / OpenAI-compatible)
   web/             # FastAPI test console + single-page UI
-tests/             # 83 behavior tests, real objects, LLM faked at the boundary only
+tests/             # 133 behavior tests, real objects, LLM faked at the HTTP boundary
 ```
 
 ## Develop
 
 ```bash
-pytest                    # 83 tests, no API key needed (LLM faked at the seam)
+pytest                    # 133 tests, no API key needed (LLM faked at the seam)
 ```
 
 The deterministic core (artifacts, canon store, ledgers, context pack, lint) never

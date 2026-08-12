@@ -171,7 +171,12 @@ def main() -> None:
         for v in result.remaining:
             print(f"    {v}")
 
-    print(f"\n■ 비용: {usage.calls} calls · in {usage.input_tokens} / out {usage.output_tokens} / think {usage.thinking_tokens} · ${usage.usd:.4f} (₩{usage.krw:.0f})")
+    print(f"\n■ 비용: {usage.calls} calls · in {usage.input_tokens} / out {usage.output_tokens} "
+          f"/ think {usage.thinking_tokens} · ${usage.usd:.4f} (₩{usage.krw:.0f})")
+    # Cache tiers bill differently (read 0.1x, write 1.25x) — show them, or a
+    # run that pays for writes it never reads back looks identical to a good one.
+    print(f"■ 캐시: write {usage.cache_write_tokens} / read {usage.cached_tokens} "
+          f"· 적중률 {usage.cache_hit_rate:.0%}")
 
 
 if __name__ == "__main__":

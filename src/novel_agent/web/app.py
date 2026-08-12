@@ -79,6 +79,8 @@ def _llm(state: dict):
     u = state.get("usage", {})
     usage = Usage(
         input_tokens=u.get("input_tokens", 0), output_tokens=u.get("output_tokens", 0),
+        cached_tokens=u.get("cached_tokens", 0),
+        cache_write_tokens=u.get("cache_write_tokens", 0),
         thinking_tokens=u.get("thinking_tokens", 0), calls=u.get("calls", 0),
         price_in_per_1m=s.price_in_per_1m, price_out_per_1m=s.price_out_per_1m,
         usd_krw=s.usd_krw,
@@ -87,10 +89,16 @@ def _llm(state: dict):
 
 
 def _record_usage(state: dict, usage: Usage) -> dict:
+    # cache_* must round-trip: they are priced at different rates, so dropping
+    # them here would silently re-bill cached tokens at the full input price.
     state["usage"] = {
         "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens,
+        "cached_tokens": usage.cached_tokens,
+        "cache_write_tokens": usage.cache_write_tokens,
         "thinking_tokens": usage.thinking_tokens, "calls": usage.calls,
         "usd": round(usage.usd, 4), "krw": round(usage.krw),
+        # 0.0 across many calls = the cache-stable prefix drifted (DESIGN §5)
+        "cache_hit_rate": round(usage.cache_hit_rate, 3),
     }
     return state["usage"]
 
