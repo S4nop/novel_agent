@@ -22,17 +22,24 @@ Being honest up front saves you an afternoon.
 | Bounded revise loop that improves the style score | ✅ works |
 | Provider-agnostic model config (Anthropic / Gemini / any OpenAI-compatible) | ✅ works |
 | **Write episode 2 informed by episode 1's *canon*** | ⚠️ **partial** |
-| Continuity checking against canon (Track A) | ❌ not built |
+| Continuity checking against canon (Track A) | ✅ works — hard gate |
+| Enforce the settings you forbade in the interview | ✅ works — blocker rule |
+| Pay off 떡밥 and detect 완결-readiness | ⚠️ **partial** — payable now; no climax trigger |
 | Craft judging by an LLM (Track B) | ❌ not built |
 | Arc planning / arc audit / completion detection | ❌ not built (a 1-arc stub only) |
 | LangGraph orchestration + durable checkpointing | ❌ not built |
 
-**The important caveat:** the **Canonicalizer is not implemented**. When an episode is
-written it is saved and the *next* episode does receive it verbatim (K=1), so short-range
-continuity works. But nothing extracts state from it, so the canon (character locations,
-learned facts, power levels, foreshadow ledger) does **not** advance. In practice: this is
-a very good **first-episode / pilot** generator, not yet a 100-episode serial engine.
-That gap is the single highest-value thing to build next.
+**The important caveat:** the **Canonicalizer's LLM half is not implemented**. Its
+deterministic half now runs — pacing debt, foreshadow deadlines, the rolling summary and
+episode records all persist and advance across episodes, and 떡밥 can be paid off. But
+nothing yet *extracts* character/world state from accepted prose, so canon facts
+(locations, learned facts, power levels) still do not advance automatically; you update
+them by hand in the canon panel. Track A now catches it when a draft contradicts canon,
+which is what makes that manual step safe rather than a silent time bomb.
+
+In practice: a strong **pilot generator plus a working continuity gate**, not yet a
+100-episode unattended serial engine. `extract_canon_delta()` is the single highest-value
+thing left.
 
 ---
 
@@ -44,7 +51,7 @@ Requires Python 3.11+.
 git clone <your-repo> && cd novel_agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev,llm,web]'
-pytest                      # 133 tests, no API key needed
+pytest                      # 169 tests, no API key needed
 ```
 
 `pytest` passing without a key is intentional — the deterministic core (canon store,
@@ -364,16 +371,24 @@ If your model fails #1 or #2, no amount of pipeline work fixes it.
 
 In value order, with the design section that specifies each:
 
-1. **Canonicalizer** (`DESIGN.md §3`) — extract a `CanonDelta` from an accepted episode
-   and commit it. *This is what turns the tool into a serial engine.* The artifact and the
-   single-writer store already exist; only the extraction node is missing.
-2. **Track A continuity checker** (`§5`) — claims-vs-canon. Our testing showed the drafter
-   invents facts and does **not** self-report them, so this is load-bearing, not optional.
-3. **Human-accept gate + reject path** (`§3`, invariant #7).
-4. **LangGraph orchestration + durable checkpointer** (`§5`) — needed for pause/resume
-   across days. Note invariant #13: never put an expensive LLM call in the same node as an
-   `interrupt()`.
-5. **Arc planner / arc auditor** (`§4`) — for multi-arc stories and completion detection.
+1. **Canonicalizer, LLM half** (`DESIGN.md §3`) — `extract_canon_delta()`: read accepted
+   prose and emit a `CanonDelta`. *This is what turns the tool into a serial engine.* The
+   artifact, the single-writer store, and `apply_canon_delta()` all exist; only the
+   extraction node is missing. Track A is now in place to catch its mistakes.
+2. **Orchestration driver** (`§5`) — loop episode 1→N with retry/escalation. Nothing yet
+   runs unattended; every episode is still a button press.
+3. **Budget cap + circuit breaker** (`§5`) — `Usage` already meters cost (including the
+   cache tiers); nothing yet *stops* on a runaway loop.
+4. **완결 convergence** (`§4`) — target episode count, forced major-seed payoff near the
+   end, climax trigger. `ForeshadowLedger.completion_ready()` works now, but nothing
+   consults it.
+5. **Track B craft judge** (`§3`) — plot logic and character-consistency passes. Track A
+   covers factual contradiction only; it cannot tell you a plot is boring.
+6. **Human-accept gate + reject path** (`§3`, invariant #7), then **LangGraph
+   orchestration + durable checkpointer** (`§5`) for pause/resume across days. Note
+   invariant #13: never put an expensive LLM call in the same node as an `interrupt()`.
+7. **Episode versioning** (`§5`) — re-drafting the same episode overwrites the previous
+   version with no way back.
 
 Read `DESIGN.md §4` ("Composition invariants") before adding anything — those 14 rules
 were derived from an integration review that found 12 real ways the components fail to

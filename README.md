@@ -11,11 +11,13 @@ Also: architecture & rationale [`DESIGN.md`](./DESIGN.md) · prose rules
 [`phase0-results.md`](./phase0-results.md)
 
 **Current state:** a strong **first-episode / pilot** generator (idea → interview → genre →
-premise → canon → episode 1 with a style-linted revise loop). The Canonicalizer's
-deterministic half is in place (rhythm debt, foreshadow deadlines, summary and episode
-records now persist across episodes); its LLM half — extracting a `CanonDelta` from
-accepted prose — is not, so character/world facts do not yet accumulate automatically.
-See the guide's status table.
+premise → canon → episode 1 with a style-linted revise loop) **plus a working
+continuity gate**: Track A checks every draft against canon and hard-blocks a
+contradiction, and settings you forbade in the interview are enforced as a blocker rule.
+The Canonicalizer's deterministic half persists pacing debt, 떡밥 deadlines, the rolling
+summary and episode records, and 떡밥 can now be paid off. Its LLM half — extracting a
+`CanonDelta` from accepted prose — is still missing, so character/world facts do not yet
+accumulate automatically. See the guide's status table.
 
 - **Users are Korean → the agent speaks Korean** (interview, gates, prose).
 - Human-in-the-loop **co-writer**: the author locks the premise, the voice, and the world.
@@ -92,16 +94,17 @@ src/novel_agent/
   nodes.py         # IdeaIntake / NorthStar / Canon+Voice / EpisodePlanner (+ RESTRAINT)
   drafter.py       # ContextPack → Draft (+ [[FACT:]] extraction)
   reviser.py       # bounded revise loop, keep-best
-  style.py         # Korean prose lint (Track C) — makes 유치함 countable
+  style.py         # Korean prose lint (Track C) + the author's 금기어 blocker
+  continuity.py    # Track A — canon contradiction check, hard gate
   llm.py           # provider adapter (Anthropic / Gemini native / OpenAI-compatible)
   web/             # FastAPI test console + single-page UI
-tests/             # 133 behavior tests, real objects, LLM faked at the HTTP boundary
+tests/             # 169 behavior tests, real objects, LLM faked at the HTTP boundary
 ```
 
 ## Develop
 
 ```bash
-pytest                    # 133 tests, no API key needed (LLM faked at the seam)
+pytest                    # 169 tests, no API key needed (LLM faked at the seam)
 ```
 
 The deterministic core (artifacts, canon store, ledgers, context pack, lint) never
