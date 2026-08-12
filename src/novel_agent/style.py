@@ -44,6 +44,12 @@ class RuleMeta:
 
 
 RULE_INFO: dict[str, RuleMeta] = {
+    "작가 금기어": RuleMeta(
+        "작가가 설정 인터뷰에서 '이 세계에 없어야 한다'고 지정한 표현입니다. 취향이 아니라 "
+        "협상 불가 규칙이므로, 한 번이라도 등장하면 그 화는 작가의 세계관을 위반한 원고입니다.",
+        "해당 표현을 지우고, 같은 기능을 세계관 안의 어휘로 대체하세요. 새 조어를 만들지 말고 "
+        "이미 있는 용어집 안에서 해결하세요.",
+        "상평통보 코인 잔고를 확인했다.", "엽전 꾸러미를 세어 보았다."),
     "겹부호(?!, !!)": RuleMeta(
         "한글 맞춤법에 없는 표기입니다. 부호로 감정을 대신하는 순간 초보 원고로 읽힙니다.",
         "겹부호를 지우고, 놀람은 짧은 단문과 행동 한 줄로 표현하세요.",
@@ -185,7 +191,8 @@ def _word_hits(text: str, needles: list[str]) -> list[str]:
             if re.search(r"(?<![가-힣])" + re.escape(n), text)]
 
 
-def lint_prose(text: str, *, target_chars: int = 5200) -> list[Violation]:
+def lint_prose(text: str, *, target_chars: int = 5200,
+               forbidden_terms: list[str] | None = None) -> list[Violation]:
     """Return every style violation, worst first. Thresholds scale with length."""
     scale = max(1.0, len(text) / target_chars)
     lines = _lines(text)
@@ -323,17 +330,62 @@ def lint_prose(text: str, *, target_chars: int = 5200) -> list[Violation]:
     long_dlg = sum(1 for l in dialogue_lines if len(l) > 60)
     add_if("40자 초과 장문 대사", "minor", long_dlg, "0")
 
+    # ── the author's absolute prohibitions (테스트 피드백 1-④) ──────────────
+    # Data-driven, never a hardcoded word list: the terms come from the author's
+    # hard-rule interview answers and GenreProfile.forbidden_anti_patterns, so
+    # this rule stays genre-agnostic (invariant #1). A contemporary-setting novel
+    # may legitimately say 데이터; only what THIS author forbade is a violation.
+    # One violation, not one per term: N prohibitions breached is a single kind of
+    # failure, and firing N blockers would swamp the score and drown the rest of
+    # the report the reviser needs to act on.
+    breached = [t for t in (forbidden_terms or ()) if t in text]
+    if breached:
+        add("작가 금기어", "blocker", sum(text.count(t) for t in breached), "0회",
+            evidence="작가가 금지한 표현: " + ", ".join(f"'{t}'" for t in breached[:5]),
+            limit_num=0)
+
     order = {"blocker": 0, "major": 1, "minor": 2}
     return sorted(v, key=lambda x: (order[x.severity], -x.count))
 
 
-def style_score(text: str, *, target_chars: int = 5200) -> int:
+# Korean puts the exemplars BEFORE the category: "X, Y 같은 Z" means X and Y are
+# the forbidden things and Z merely names the category. Truncating at the marker
+# keeps 암호화폐/생체 데이터 and discards 현대 IT 개념, which would false-positive.
+_CATEGORY_MARKERS = r"\s*(?:같은|같은것|등의|등등|등|류의|류|따위|처럼|스러운)\b.*$"
+# Structural words only — no genre nouns, or this smuggles setting back into code.
+_TERM_NOISE = {"금지", "없음", "없다", "없이", "제외", "그리고", "또는", "및",
+               "이런", "그런", "것", "것들", "안됨", "안돼", "말것", "사용", "관련"}
+
+
+def forbidden_terms_from(hard_rules: list[str] | None = None,
+                         anti_patterns: list[str] | None = None) -> list[str]:
+    """Turn free-text prohibitions into matchable terms.
+
+    The author answers in prose ("암호화폐, 생체 데이터 같은 현대 IT 개념"), so the
+    whole sentence would never substring-match. Multi-word phrases are kept
+    intact ("생체 데이터" stays one term) — splitting to bare words would make
+    common nouns like 데이터 match innocent prose.
+    """
+    terms: list[str] = []
+    for raw in list(hard_rules or []) + list(anti_patterns or []):
+        head = re.sub(_CATEGORY_MARKERS, "", (raw or "").strip())
+        for chunk in re.split(r"[,،、/\n·]|\s+및\s+|\s+또는\s+", head):
+            t = chunk.strip(" '\"’”「」『』()[]{}·…．.!?~-").strip()
+            if len(t) >= 2 and t not in _TERM_NOISE:
+                terms.append(t)
+    # dedupe, longest first so the most specific term is reported as evidence
+    return sorted(dict.fromkeys(terms), key=len, reverse=True)
+
+
+def style_score(text: str, *, target_chars: int = 5200,
+                forbidden_terms: list[str] | None = None) -> int:
     """0-100. blockers cost 12, majors 5, minors 2 — scaled by how far over the
     limit each violation is (capped at 2x) so partial fixes are visible to the
     reviser's keep-best comparison."""
     weight = {"blocker": 12, "major": 5, "minor": 2}
     total = sum(
         weight[x.severity] * min(2.0, 0.5 + 0.5 * x.overage)
-        for x in lint_prose(text, target_chars=target_chars)
+        for x in lint_prose(text, target_chars=target_chars,
+                            forbidden_terms=forbidden_terms)
     )
     return max(0, round(100 - total))

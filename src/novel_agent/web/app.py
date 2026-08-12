@@ -41,7 +41,7 @@ from ..nodes import (
 )
 from ..reviser import revise_draft
 from ..reviser import PASS_SCORE
-from ..style import lint_prose, style_score
+from ..style import forbidden_terms_from, lint_prose, style_score
 
 app = FastAPI(title="novel-agent test console")
 STATIC = pathlib.Path(__file__).parent / "static"
@@ -384,13 +384,24 @@ def episode(pid: str, body: DraftIn):
             rhythm=store.load_rhythm(), summary=store.load_summary(),
             current_episode=body.episode, previous_episode=prev,
         )
+        # The author's absolute prohibitions become a mechanical blocker rule
+        # (테스트 피드백 1-④): a hard rule the model quietly ignored used to be
+        # invisible to the gate. Sourced from the interview's hard_rule answers
+        # plus the profile's anti-patterns — never a hardcoded word list.
+        forbidden = forbidden_terms_from(
+            hard_rules=[a["answer"] for a in state.get("answers", [])
+                        if a.get("hard_rule")],
+            anti_patterns=profile.forbidden_anti_patterns,
+        )
         draft = draft_episode(llm, pack, max_tokens=32768)
-        first = style_score(draft.prose, target_chars=beats.length_target)
+        first = style_score(draft.prose, target_chars=beats.length_target,
+                            forbidden_terms=forbidden)
 
         result = None
         if body.revise:
             result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
-                                  max_iterations=body.iterations)
+                                  max_iterations=body.iterations,
+                                  forbidden_terms=forbidden)
             draft = result.draft
 
         (_dir(pid) / f"ep{body.episode:02d}.txt").write_text(draft.prose, encoding="utf-8")
@@ -406,12 +417,14 @@ def episode(pid: str, body: DraftIn):
             "chars": draft.char_count,
             "target": beats.length_target,
             "first_score": first,
-            "score": style_score(draft.prose, target_chars=beats.length_target),
+            "score": style_score(draft.prose, target_chars=beats.length_target,
+                                 forbidden_terms=forbidden),
             "iterations": result.iterations if result else 0,
             "passed": result.passed if result else None,
             "fact_requests": [f.question for f in draft.fact_requests],
             "violations": [_violation_json(v) for v in
-                           lint_prose(draft.prose, target_chars=beats.length_target)],
+                           lint_prose(draft.prose, target_chars=beats.length_target,
+                                      forbidden_terms=forbidden)],
             "pass_score": PASS_SCORE,
         }
         state.setdefault("episodes", {})[str(body.episode)] = {

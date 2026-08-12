@@ -65,13 +65,15 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
     return "\n".join(f"- {l}" for l in lines)
 
 
-def _fitness(draft: Draft, target: int) -> tuple[int, int]:
+def _fitness(draft: Draft, target: int,
+             forbidden_terms: list[str] | None = None) -> tuple[int, int]:
     """Ranking key for keep-best. Length compliance is a GATE criterion, so it
     outranks style score: a length-correct draft beats a short one at equal score.
     (Style score alone is blind to this — trading one violation for another keeps
     the number identical while the draft genuinely improves.)"""
     return (0 if length_findings(draft, target) else 1,
-            style_score(draft.prose, target_chars=target))
+            style_score(draft.prose, target_chars=target,
+                        forbidden_terms=forbidden_terms))
 
 
 def revise_draft(
@@ -81,15 +83,19 @@ def revise_draft(
     *,
     target_chars: int,
     max_iterations: int = 3,
+    # The author's absolute prohibitions (테스트 피드백 1-④). Passed in rather
+    # than read here so the lint stays a pure function of its inputs.
+    forbidden_terms: list[str] | None = None,
     max_tokens: int = 32768,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
     best = draft
-    best_fit = _fitness(draft, target_chars)
+    best_fit = _fitness(draft, target_chars, forbidden_terms)
     iterations = 0
 
     for _ in range(max_iterations):
-        violations = lint_prose(best.prose, target_chars=target_chars)
+        violations = lint_prose(best.prose, target_chars=target_chars,
+                                forbidden_terms=forbidden_terms)
         length = length_findings(best, target_chars)
         if not violations and not length:
             break
@@ -113,15 +119,17 @@ def revise_draft(
             fact_requests=requests or draft.fact_requests,
         )
         # keep-best: an edit that makes things worse is discarded
-        fit = _fitness(candidate, target_chars)
+        fit = _fitness(candidate, target_chars, forbidden_terms)
         if fit > best_fit or (
             fit == best_fit
             and abs(candidate.char_count - target_chars) < abs(best.char_count - target_chars)
         ):
             best, best_fit = candidate, fit
 
-    best_score = style_score(best.prose, target_chars=target_chars)
-    remaining = lint_prose(best.prose, target_chars=target_chars)
+    best_score = style_score(best.prose, target_chars=target_chars,
+                             forbidden_terms=forbidden_terms)
+    remaining = lint_prose(best.prose, target_chars=target_chars,
+                           forbidden_terms=forbidden_terms)
     passed = best_score >= PASS_SCORE and not length_findings(best, target_chars)
     return RevisionResult(
         draft=best, score=best_score, iterations=iterations,

@@ -2,7 +2,12 @@
 
 Thresholds come from Korean 웹소설 practitioner craft sources — see docs/style-spec.md.
 """
-from novel_agent.style import lint_prose, style_score
+from novel_agent.style import (
+    forbidden_terms_from,
+    lint_prose,
+    rule_meta,
+    style_score,
+)
 
 
 def _rules(text, **kw):
@@ -152,3 +157,62 @@ def test_every_lint_rule_has_a_rationale_and_a_fix():
             assert v.meta.why and v.meta.fix
     assert len(seen) >= 6
     assert all(m.why and m.fix for m in RULE_INFO.values())
+
+
+# ── the author's absolute prohibitions (테스트 피드백 1-④) ────────────────────
+class TestForbiddenTerms:
+    """The gate was blind to a violated hard rule: prose stuffed with the exact
+    terms the author banned scored a clean 100."""
+
+    def test_prose_using_a_banned_term_is_blocked(self):
+        terms = forbidden_terms_from(hard_rules=["암호화폐, 생체 데이터 같은 현대 IT 개념"])
+        prose = "케이타는 생체 데이터 기록을 훑었다.\n" * 8
+        v = next(x for x in lint_prose(prose, forbidden_terms=terms)
+                 if x.rule == "작가 금기어")
+        assert v.severity == "blocker"
+        assert "생체 데이터" in v.evidence
+
+    def test_the_same_prose_scores_a_clean_100_without_the_terms(self):
+        """The reported failure exactly: prose that violates the author's world
+        was indistinguishable from perfect prose. Structurally clean on purpose,
+        so it is this rule catching it and not a rhythm rule."""
+        prose = ('"생체 데이터 기록입니다."\n\n케이타가 장부를 넘겼다.\n\n'
+                 '"확인했나?"\n\n할멈은 고개를 저었지.\n\n엽전 두 냥이 굴렀다.\n\n') * 5
+        assert style_score(prose) == 100
+        assert style_score(prose, forbidden_terms=["생체 데이터"]) < 100
+
+    def test_exemplars_are_kept_and_the_category_phrase_is_discarded(self):
+        """Korean lists exemplars before the category: "X, Y 같은 Z" bans X and Y,
+        not Z. Keeping Z would false-positive on ordinary words."""
+        terms = forbidden_terms_from(hard_rules=["암호화폐, 생체 데이터 같은 현대 IT 개념"])
+        assert set(terms) == {"암호화폐", "생체 데이터"}
+
+    def test_a_multi_word_ban_is_not_split_into_common_nouns(self):
+        """Splitting "생체 데이터" into "데이터" would flag innocent modern prose."""
+        terms = forbidden_terms_from(hard_rules=["생체 데이터"])
+        innocent = "그는 데이터를 확인했다. 현대적인 건물이었다.\n" * 8
+        assert "데이터" not in terms
+        assert not [v for v in lint_prose(innocent, forbidden_terms=terms)
+                    if v.rule == "작가 금기어"]
+
+    def test_genre_anti_patterns_are_enforced_too(self):
+        terms = forbidden_terms_from(anti_patterns=["회귀", "환생"])
+        prose = "그는 회귀했다.\n" * 8
+        assert any(v.rule == "작가 금기어" for v in lint_prose(prose, forbidden_terms=terms))
+
+    def test_many_banned_terms_report_as_one_finding_not_a_flood(self):
+        """N breaches is one kind of failure; N blockers would swamp the score and
+        bury the findings the reviser needs."""
+        terms = forbidden_terms_from(hard_rules=["암호화폐, 회귀, 환생, 시스템창"])
+        prose = "암호화폐와 회귀와 환생과 시스템창.\n" * 8
+        hits = [v for v in lint_prose(prose, forbidden_terms=terms) if v.rule == "작가 금기어"]
+        assert len(hits) == 1
+
+    def test_the_rule_explains_itself_like_every_other_rule(self):
+        """테스트 피드백 3: a bare deduction teaches the author nothing."""
+        meta = rule_meta("작가 금기어")
+        assert meta and meta.why and meta.fix and meta.bad and meta.good
+
+    def test_no_terms_configured_changes_nothing(self):
+        prose = "평범한 문장이다.\n" * 8
+        assert lint_prose(prose) == lint_prose(prose, forbidden_terms=[])

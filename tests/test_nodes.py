@@ -186,6 +186,39 @@ def test_planner_prompt_lists_overdue_foreshadows():
     assert "사라진 호패" in llm.prompts[-1]
 
 
+def test_overdue_foreshadows_are_shown_with_their_id_so_a_payoff_is_declarable():
+    """Without the id in the prompt the planner has no handle to pay a 떡밥 with,
+    so seeds_to_pay could only ever come back empty."""
+    from novel_agent.artifacts import PlannedSeed
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="사라진 호패",
+                                 due_by_ep=3), episode=1)
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, foreshadow=led, episode=3)
+    assert f"[{seed.seed_id}]" in llm.prompts[-1]
+
+
+def test_a_declared_payoff_reaches_the_beat_sheet():
+    from novel_agent.artifacts import PlannedSeed
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="사라진 호패",
+                                 due_by_ep=3), episode=1)
+    draft = _bs_draft()
+    draft.seeds_to_pay = [seed.seed_id]
+    bs = _plan(ScriptedLLM(draft), foreshadow=led, episode=3)
+    assert bs.seeds_to_pay == [seed.seed_id]
+
+
+def test_a_hallucinated_seed_id_is_dropped_rather_than_carried():
+    """An unattended run must not record a payoff against a 떡밥 that never existed."""
+    draft = _bs_draft()
+    draft.seeds_to_pay = ["seed-that-never-existed"]
+    bs = _plan(ScriptedLLM(draft), foreshadow=ForeshadowLedger(), episode=3)
+    assert bs.seeds_to_pay == []
+
+
 def test_planner_inherits_length_and_pov_from_genre_profile():
     bs = _plan(ScriptedLLM(_bs_draft()))
     gp = genre_profile()

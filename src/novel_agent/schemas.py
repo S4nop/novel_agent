@@ -92,3 +92,7 @@ class BeatSheetDraft(BaseModel):
     closing_cliffhanger: str
     entities_present: list[str]
     seeds_to_plant: list[SeedDraft]
+    seeds_to_pay: list[str] = Field(
+        default_factory=list,
+        description="이 화에서 회수하는 떡밥의 ID 목록. [회수 기한이 된 떡밥]에 대괄호로 "
+                    "표시된 ID를 그대로 쓰세요. 회수하지 않으면 빈 목록.")

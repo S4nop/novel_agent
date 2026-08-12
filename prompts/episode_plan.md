@@ -23,3 +23,5 @@ ${pacing_directive}
 ${due_seeds}
 
 ${episode_number}화의 비트시트를 설계하세요. 도입은 즉시 몰입되는 훅, 마지막은 다음 화를 반드시 보게 만드는 절단으로. beat_type은 setup/escalation/payoff/frustration/reveal/cliffhanger 중에서만 쓰세요.
+
+위 [회수 기한이 된 떡밥] 중 이 화에서 실제로 회수하는 것이 있으면, 대괄호 안의 ID를 `seeds_to_pay`에 그대로 적으세요. 회수한다면 그 회수 장면을 beats 안에 payoff 또는 reveal 비트로 반드시 넣으세요. 억지로 회수하지는 마세요 — 이 화에 자연스럽게 들어가지 않으면 빈 목록으로 두고 다음 화로 넘기세요.

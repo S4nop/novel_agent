@@ -59,6 +59,7 @@ def main() -> None:
 
     # 0) Author interview  ▣ BLOCKING — the world is the author's call, not the model's
     idea = a.idea
+    interview_answers: list[Answer] = []      # hard rules are read off this later
     if a.answers:
         import json
 
@@ -67,6 +68,7 @@ def main() -> None:
         prior = [Answer(topic=x["topic"], question=x.get("question", ""),
                         answer=x["answer"], hard_rule=bool(x.get("hard_rule", False)))
                  for x in json.loads(pathlib.Path(a.answers).read_text(encoding="utf-8"))]
+        interview_answers = prior
         idea = enrich_idea(a.idea, prior)
         print(f"\n■ 작가가 정한 방향 {len(prior)}건 반영")
         for x in prior:
@@ -86,6 +88,7 @@ def main() -> None:
             answers.append(Answer(topic=q.topic, question=q.question, answer=ans,
                                   hard_rule=q.hard_rule))
             print(f"  → {ans}")
+        interview_answers = answers
         idea = enrich_idea(a.idea, answers)
         (out).mkdir(parents=True, exist_ok=True)
         (out / "interview.md").write_text(
@@ -158,11 +161,21 @@ def main() -> None:
         draft = draft_episode(llm, pack, max_tokens=32768)
 
         from novel_agent.reviser import revise_draft
-        from novel_agent.style import lint_prose, style_score
+        from novel_agent.style import forbidden_terms_from, lint_prose, style_score
 
-        before = style_score(draft.prose, target_chars=beats.length_target)
+        # The author's hard rules become a mechanical blocker (테스트 피드백 1-④):
+        # without this the model can quietly ignore a prohibition and still score 100.
+        forbidden = forbidden_terms_from(
+            hard_rules=[x.answer for x in interview_answers if x.hard_rule],
+            anti_patterns=profile.forbidden_anti_patterns,
+        )
+        if forbidden:
+            print(f"\n■ 금기어 검사 대상 {len(forbidden)}건: {', '.join(forbidden[:6])}")
+        before = style_score(draft.prose, target_chars=beats.length_target,
+                             forbidden_terms=forbidden)
         print(f"\n■ 초고: {draft.char_count}자 · 문체 {before}/100 → 수정 루프 진입")
-        result = revise_draft(llm, draft, pack, target_chars=beats.length_target)
+        result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
+                              forbidden_terms=forbidden)
         draft = result.draft
         path = out / "ep01.txt"
         path.write_text(draft.prose, encoding="utf-8")

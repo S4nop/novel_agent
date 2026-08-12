@@ -255,7 +255,10 @@ def plan_episode(
                 cast=cast,
                 story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
                 pacing_directive=rhythm.pacing_directive(),
-                due_seeds=(chr(10).join(f"- {x.description}" for x in due) or "없음"),
+                # the seed_id must be visible, or the planner has no handle to
+                # declare a payoff with — seeds_to_pay would always come back empty
+                due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
+                                        for x in due) or "없음"),
                 episode_number=episode_number)},
         ],
         BeatSheetDraft,
@@ -275,6 +278,9 @@ def plan_episode(
             )
             for i, s in enumerate(draft.seeds_to_plant, 1)
         ],
+        # only IDs that really exist may be marked paid — a hallucinated id would
+        # otherwise silently no-op in the canonicalizer, leaving the 떡밥 open
+        seeds_to_pay=[s for s in draft.seeds_to_pay if s in foreshadow.seeds],
         closing_cliffhanger=draft.closing_cliffhanger,
         length_target=profile.episode_length_target,
         pov=profile.pov,
