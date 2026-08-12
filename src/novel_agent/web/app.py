@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from ..artifacts import Draft, Summary
 from ..canon_store import CanonStore
 from ..canonicalizer import commit_episode_state
+from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
 from ..drafter import draft_episode
@@ -401,8 +402,18 @@ def episode(pid: str, body: DraftIn):
         if body.revise:
             result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
                                   max_iterations=body.iterations,
-                                  forbidden_terms=forbidden)
+                                  forbidden_terms=forbidden,
+                                  # free rules run every iteration so canon breaks
+                                  # get FIXED, not merely reported at the end
+                                  extra_findings=lambda d: deterministic_findings(
+                                      d, beats, canon))
             draft = result.draft
+
+        # Track A, full pass — one judge call on the final draft. The drafter
+        # cannot be trusted to self-report invented facts (phase0-results.md),
+        # so this is the only thing standing between an unattended run and
+        # accumulating canon damage.
+        continuity = check_continuity(llm, draft, beats, canon)
 
         (_dir(pid) / f"ep{body.episode:02d}.txt").write_text(draft.prose, encoding="utf-8")
 
@@ -420,7 +431,11 @@ def episode(pid: str, body: DraftIn):
             "score": style_score(draft.prose, target_chars=beats.length_target,
                                  forbidden_terms=forbidden),
             "iterations": result.iterations if result else 0,
-            "passed": result.passed if result else None,
+            # a continuity blocker overrides a passing style score (hard gate)
+            "passed": (bool(result.passed) and not blocks_acceptance(continuity))
+                      if result else None,
+            "continuity": [_violation_json(v) for v in continuity],
+            "continuity_blocked": blocks_acceptance(continuity),
             "fact_requests": [f.question for f in draft.fact_requests],
             "violations": [_violation_json(v) for v in
                            lint_prose(draft.prose, target_chars=beats.length_target,

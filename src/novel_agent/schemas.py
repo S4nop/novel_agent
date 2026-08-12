@@ -96,3 +96,16 @@ class BeatSheetDraft(BaseModel):
         default_factory=list,
         description="이 화에서 회수하는 떡밥의 ID 목록. [회수 기한이 된 떡밥]에 대괄호로 "
                     "표시된 ID를 그대로 쓰세요. 회수하지 않으면 빈 목록.")
+
+
+# ── Track A continuity (DESIGN §3) ───────────────────────────────────────────
+class ContinuityFindingDraft(BaseModel):
+    """One contradiction between the prose and canon. Shallow by design."""
+    canon_fact: str = Field(description="캐논에 적힌 사실 (그대로 인용)")
+    prose_claim: str = Field(description="본문이 주장하는 내용 (그대로 인용)")
+    severity: str = Field(description="blocker | major | minor 중 하나")
+    where: str = Field(default="", description="본문에서 문제가 된 짧은 구절")
+
+
+class ContinuityReportDraft(BaseModel):
+    findings: list[ContinuityFindingDraft] = Field(default_factory=list)

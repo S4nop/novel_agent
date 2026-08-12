@@ -86,6 +86,10 @@ def revise_draft(
     # The author's absolute prohibitions (테스트 피드백 1-④). Passed in rather
     # than read here so the lint stays a pure function of its inputs.
     forbidden_terms: list[str] | None = None,
+    # Cheap per-iteration continuity rules (Track A's deterministic half),
+    # injected so the reviser needs no canon knowledge and stays testable.
+    # The expensive LLM continuity judge runs once at the gate, not in here.
+    extra_findings=None,
     max_tokens: int = 32768,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
@@ -96,6 +100,8 @@ def revise_draft(
     for _ in range(max_iterations):
         violations = lint_prose(best.prose, target_chars=target_chars,
                                 forbidden_terms=forbidden_terms)
+        if extra_findings is not None:
+            violations = violations + list(extra_findings(best))
         length = length_findings(best, target_chars)
         if not violations and not length:
             break
@@ -130,7 +136,12 @@ def revise_draft(
                              forbidden_terms=forbidden_terms)
     remaining = lint_prose(best.prose, target_chars=target_chars,
                            forbidden_terms=forbidden_terms)
-    passed = best_score >= PASS_SCORE and not length_findings(best, target_chars)
+    if extra_findings is not None:
+        remaining = remaining + list(extra_findings(best))
+    # A continuity blocker is a HARD gate — it cannot be style-scored away.
+    passed = (best_score >= PASS_SCORE
+              and not length_findings(best, target_chars)
+              and not any(v.severity == "blocker" for v in remaining))
     return RevisionResult(
         draft=best, score=best_score, iterations=iterations,
         passed=passed, remaining=remaining,

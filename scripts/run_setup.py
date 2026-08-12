@@ -174,8 +174,13 @@ def main() -> None:
         before = style_score(draft.prose, target_chars=beats.length_target,
                              forbidden_terms=forbidden)
         print(f"\n■ 초고: {draft.char_count}자 · 문체 {before}/100 → 수정 루프 진입")
+        from novel_agent.continuity import (
+            blocks_acceptance, check_continuity, deterministic_findings,
+        )
+
         result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
-                              forbidden_terms=forbidden)
+                              forbidden_terms=forbidden,
+                              extra_findings=lambda d: deterministic_findings(d, beats, canon))
         draft = result.draft
         path = out / "ep01.txt"
         path.write_text(draft.prose, encoding="utf-8")
@@ -183,8 +188,17 @@ def main() -> None:
         if draft.fact_requests:
             print(f"  FACT 요청: {[f.question for f in draft.fact_requests]}")
 
+        # Track A full pass — the drafter cannot be trusted to self-report
+        # invented facts (phase0-results.md), so canon is checked independently.
+        cont = check_continuity(llm, draft, beats, canon)
+        gate_ok = bool(result.passed) and not blocks_acceptance(cont)
         print(f"■ 수정 {result.iterations}회 · 문체 {before}/100 → {result.score}/100 · "
-              f"{draft.char_count}자 · {'통과' if result.passed else '미통과(사람 확인 필요)'}")
+              f"{draft.char_count}자 · {'통과' if gate_ok else '미통과(사람 확인 필요)'}")
+        print(f"■ 연속성 검사: {len(cont)}건"
+              + (f" · 차단 {sum(1 for v in cont if v.severity == 'blocker')}건"
+                 if blocks_acceptance(cont) else ""))
+        for v in cont:
+            print(f"    [{v.severity}] {v.rule} — {v.evidence}")
         for v in result.remaining:
             print(f"    {v}")
 

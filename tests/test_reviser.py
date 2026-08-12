@@ -103,3 +103,32 @@ def test_prefers_length_correct_candidate_at_equal_style_score():
     result = revise_draft(llm, _draft(short), _pack(), target_chars=full_len, max_iterations=1)
     assert result.draft.prose == correct.strip()   # drafter strips surrounding space
     assert result.draft.char_count > len(short)
+
+
+# ── Track A as a hard gate (클로드 제안 5) ────────────────────────────────────
+def _continuity_blocker(_draft):
+    from novel_agent.style import Violation
+    return [Violation(rule="캐논 위반: 퇴장한 인물 등장", severity="blocker",
+                      count=1, limit="0회", evidence="'현무'")]
+
+
+def test_a_continuity_blocker_fails_the_gate_despite_a_passing_style_score():
+    """A canon break must not be style-scored away. Before Track A the gate saw
+    only prose quality, so an episode contradicting canon could pass cleanly."""
+    target = len(CLEAN)
+    clean_only = revise_draft(SequenceLLM(), _draft(CLEAN), _pack(),
+                              target_chars=target, max_iterations=1)
+    assert clean_only.passed is True          # baseline: prose alone passes
+
+    gated = revise_draft(SequenceLLM(), _draft(CLEAN), _pack(), target_chars=target,
+                         max_iterations=1, extra_findings=_continuity_blocker)
+    assert gated.passed is False
+    assert any(v.rule.startswith("캐논 위반") for v in gated.remaining)
+
+
+def test_continuity_findings_are_fed_to_the_reviser_as_fix_instructions():
+    """Findings must reach the revise prompt, or the loop cannot repair them."""
+    llm = SequenceLLM(CLEAN)
+    revise_draft(llm, _draft(CLEAN), _pack(), target_chars=len(CLEAN),
+                 max_iterations=1, extra_findings=_continuity_blocker)
+    assert llm.calls == 1                      # a clean draft still got revised...
