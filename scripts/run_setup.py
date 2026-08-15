@@ -199,8 +199,12 @@ def main() -> None:
                  if blocks_acceptance(cont) else ""))
         for v in cont:
             print(f"    [{v.severity}] {v.rule} — {v.evidence}")
+        # result.remaining now carries the deterministic continuity findings too
+        # (they run inside the revise loop), and `cont` reports them again with
+        # the LLM ones — print each finding once.
         for v in result.remaining:
-            print(f"    {v}")
+            if not v.rule.startswith(("캐논 위반", "계획 이탈")):
+                print(f"    {v}")
 
     print(f"\n■ 비용: {usage.calls} calls · in {usage.input_tokens} / out {usage.output_tokens} "
           f"/ think {usage.thinking_tokens} · ${usage.usd:.4f} (₩{usage.krw:.0f})")
