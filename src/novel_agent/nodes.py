@@ -241,6 +241,32 @@ def _resolve_seed_ids(raw: list[str], foreshadow: ForeshadowLedger) -> list[str]
     return out
 
 
+# Episode 1 has a different job from episode 40, and nothing in the pipeline
+# knew that: the planner prompt, the restraint rules and the drafter rules are
+# all tuned for mid-serial, where the reader already has the world. Applied to
+# 1화 they produce competent prose that starts in the middle of a story the
+# reader has not been told — no ground, no direction. 연독률 depends on 1화 more
+# than on any other episode, so this is the expensive place to get it wrong.
+def opening_directive(episode_number: int) -> str:
+    """Orientation duty for the first episodes. Empty from episode 3 on."""
+    if episode_number == 1:
+        return (
+            "[1화 — 독자는 이 세계를 처음 봅니다]\n"
+            "- 이 세계를 지배하는 규칙 하나를 '장면으로' 보여주세요. 설명하지 말고, "
+            "인물이 그 규칙 때문에 손해를 보거나 굽히는 장면으로 드러내세요.\n"
+            "- 주인공이 무엇을 원하고 무엇이 그것을 막는지 이 화 안에서 분명히 하세요. "
+            "독자가 '이 사람이 앞으로 무엇과 싸우겠구나'를 알 수 있어야 합니다.\n"
+            "- 이야기가 어디로 갈지에 대한 약속을 하나 남기세요. 사건의 크기든 인물의 "
+            "목표든, 다음 화를 볼 이유는 절단신공만으로 만들지 마세요.\n"
+            "- 이미 진행 중인 이야기의 중간처럼 시작하지 마세요. 훅은 강하되, 독자가 "
+            "발 디딜 곳은 주어야 합니다."
+        )
+    if episode_number == 2:
+        return ("[2화] 1화에서 세운 세계 규칙과 주인공의 목표를 한 번 더 구체적으로 "
+                "확인시키세요. 아직 독자는 이 세계에 익숙하지 않습니다.")
+    return ""
+
+
 def plan_episode(
     llm: LLM,
     *,
@@ -278,7 +304,8 @@ def plan_episode(
                 cast=cast,
                 story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
                 pacing_directive="\n".join(
-                    x for x in (rhythm.pacing_directive(), extra_directive) if x),
+                    x for x in (opening_directive(episode_number),
+                                rhythm.pacing_directive(), extra_directive) if x),
                 # the seed_id must be visible, or the planner has no handle to
                 # declare a payoff with — seeds_to_pay would always come back empty
                 due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"

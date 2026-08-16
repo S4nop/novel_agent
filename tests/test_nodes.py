@@ -257,3 +257,33 @@ def test_a_major_seed_without_a_deadline_gets_one_so_it_can_ever_be_paid():
     major = bs.seeds_to_plant[0]
     assert major.magnitude is SeedMagnitude.MAJOR
     assert major.due_by_ep is not None and major.due_by_ep > 1
+
+
+def test_episode_one_is_told_to_ground_the_reader():
+    """Reader feedback: 1화 read like jumping into the middle of a novel. The
+    planner prompt, restraint rules and drafter rules are all tuned for
+    mid-serial, where the reader already has the world — nothing knew that
+    episode 1 has a different job."""
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, episode=1)
+    sent = llm.prompts[-1]
+    assert "1화" in sent and "처음 봅니다" in sent
+    assert "중간처럼 시작하지 마세요" in sent
+
+
+def test_the_orientation_duty_fades_after_the_opening_episodes():
+    """A serial that keeps re-establishing its world never gets going."""
+    from novel_agent.nodes import opening_directive
+
+    assert opening_directive(1) and opening_directive(2)
+    assert opening_directive(3) == "" and opening_directive(40) == ""
+
+
+def test_orientation_does_not_displace_the_pacing_directive():
+    """Both must reach the planner — one is about the reader, one about rhythm."""
+    llm = ScriptedLLM(_bs_draft())
+    starved = RhythmState(max_consecutive_frustration=1, target_catharsis_cadence=99,
+                          frustration_debt=5)
+    _plan(llm, rhythm=starved, episode=1)
+    sent = llm.prompts[-1]
+    assert "처음 봅니다" in sent and "사이다" in sent
