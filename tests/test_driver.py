@@ -244,3 +244,24 @@ def test_완결_cannot_be_declared_with_a_missing_episode(tmp_path):
                    config=_cfg(target_episodes=3, max_consecutive_failures=2))
     assert r.completed is False
     assert r.committed_episodes == 0
+
+
+def test_a_rejected_episode_keeps_its_prose_and_its_evidence(tmp_path):
+    """A live run blocked 1화 on a canon contradiction and the driver discarded
+    4,687자 of prose, leaving the author a rule name and no way to check it. The
+    author cannot judge, or correct canon, from that."""
+    s = _store(tmp_path)
+    r = run_serial(FakeLLM(contradiction=True), s,
+                   config=_cfg(target_episodes=1, max_consecutive_failures=1))
+    o = r.outcomes[0]
+    assert o.committed is False
+    assert o.prose, "a rejected draft must still be readable"
+    assert any("캐논" in f for f in o.findings), "and diagnosable"
+
+
+def test_a_committed_episode_also_carries_its_findings(tmp_path):
+    """Passing is not the same as clean — minor findings are still worth seeing."""
+    s = _store(tmp_path)
+    r = run_serial(FakeLLM(), s, config=_cfg(target_episodes=1))
+    assert r.outcomes[0].committed is True
+    assert r.outcomes[0].prose

@@ -82,9 +82,17 @@ def main() -> None:
                 path = run / f"ep{o.episode:02d}.txt"
                 path.write_text(rec.prose, encoding="utf-8")
                 line += f" → {path.name}"
+        elif o.prose:
+            # A rejected draft is still the author's to read and judge; throwing
+            # it away leaves them with a rule name and no way to check it.
+            path = run / f"ep{o.episode:02d}.rejected.txt"
+            path.write_text(o.prose, encoding="utf-8")
+            line += f" → {path.name}"
         if o.reason:
             line += f" · {o.reason}"
         print(line)
+        for f in o.findings[:6]:
+            print(f"        {f}")
     print(f"{'='*70}")
     print(f"■ 커밋된 화: {report.committed_episodes}/{len(report.outcomes)} 시도")
     print(f"■ 중단 사유: {report.stopped_because}")

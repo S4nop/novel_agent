@@ -65,6 +65,10 @@ class EpisodeOutcome:
     continuity_blockers: int
     craft_findings: int = 0
     reason: str = ""
+    # A rejected episode still has to be readable and diagnosable: the author
+    # cannot judge, and cannot correct canon, from a rule name alone.
+    prose: str = ""
+    findings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -182,7 +186,11 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             chars=result.draft.char_count, score=result.score,
             continuity_blockers=sum(1 for v in continuity if v.severity == "blocker"),
             craft_findings=len(craft),
-            reason="" if passed else _why(result, continuity, blocked)))
+            reason="" if passed else _why(result, continuity, blocked),
+            prose=result.draft.prose,
+            findings=[f"[{v.severity}] {v.rule} — {v.evidence}"
+                      for v in list(continuity) + list(result.remaining) + list(craft)
+                      if v.evidence]))
 
         if not passed:
             # Retry the SAME episode. Advancing would leave a hole in the
