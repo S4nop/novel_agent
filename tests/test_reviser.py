@@ -151,3 +151,30 @@ def test_a_short_over_dialogue_draft_is_told_to_add_narration_not_more_dialogue(
                        limit="40% 이상", limit_num=40, lower_is_better=False)]
     text2 = _fix_instructions(under, ["분량 미달: 현재 2680자, 목표 5200자"])
     assert "지문 덩어리를 인물 간" in text2       # still given when dialogue IS low
+
+
+def test_keep_best_prefers_a_balanced_draft_over_one_padded_to_length():
+    """The measured failure: length compliance was its own tier above style, so
+    a draft that hit 분량 by piling on dialogue always beat a balanced one. The
+    ceiling only moved the style score, which loses to a whole tier — that is
+    why real runs settled at 66-83% dialogue."""
+    from novel_agent.reviser import _fitness
+
+    padded = _draft("\n\n".join(
+        ['"규정입니다."', '"규정, 규정."', '"제가 정하는 게 아닙니다."',
+         '"그럼 누가 정합니까."'] * 96))
+    balanced = _draft("\n\n".join(
+        ['"규정입니다."', "노인은 꾸러미를 도로 품에 넣었다. 손끝이 떨렸다.",
+         '"그럼 누가 정합니까."', "봉출은 단말기를 눌렀다. 표시등이 노랗게 바뀌었다."] * 30))
+    assert padded.char_count > balanced.char_count          # padded hits target
+    assert _fitness(balanced, 5200) > _fitness(padded, 5200)
+
+
+def test_an_unbalanced_episode_cannot_pass_the_gate():
+    """Balance is a structural fault like length, not a stylistic nit — so
+    keep-best and the verdict must agree on it."""
+    allshouty = "\n\n".join(['"규정입니다."', '"규정, 규정."'] * 100)
+    result = revise_draft(SequenceLLM(allshouty), _draft(allshouty), _pack(),
+                          target_chars=len(allshouty), max_iterations=1)
+    assert result.passed is False
+    assert any(v.rule == "지문 부족(대사 과다)" for v in result.remaining)

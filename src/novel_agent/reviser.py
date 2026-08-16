@@ -75,6 +75,15 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
     return "\n".join(f"- {l}" for l in lines)
 
 
+def _balance_findings(draft: Draft, target: int,
+                      forbidden_terms: list[str] | None = None) -> list[Violation]:
+    """Dialogue/narration balance failures — a structural fault like length, not
+    a stylistic nit, so the gate treats it as one."""
+    return [v for v in lint_prose(draft.prose, target_chars=target,
+                                  forbidden_terms=forbidden_terms)
+            if v.rule in ("지문 부족(대사 과다)", "대사 줄 비중")]
+
+
 def _fitness(draft: Draft, target: int,
              forbidden_terms: list[str] | None = None,
              extra_findings=None) -> tuple[int, int, int]:
@@ -89,8 +98,14 @@ def _fitness(draft: Draft, target: int,
     blockers = 0
     if extra_findings is not None:
         blockers = sum(1 for v in extra_findings(draft) if v.severity == "blocker")
-    return (-blockers,
-            0 if length_findings(draft, target) else 1,
+    # Length and dialogue balance are BOTH gate criteria, counted together so a
+    # draft satisfying both outranks one satisfying either. Balance has to sit at
+    # this tier, not inside the style score: length compliance is worth a whole
+    # tier, so any style-level penalty loses to it and the loop learns to hit
+    # 분량 by piling on dialogue — measured at 66-83% before this.
+    gates = ((0 if length_findings(draft, target) else 1)
+             + (0 if _balance_findings(draft, target, forbidden_terms) else 1))
+    return (-blockers, gates,
             style_score(draft.prose, target_chars=target,
                         forbidden_terms=forbidden_terms))
 
@@ -160,6 +175,7 @@ def revise_draft(
     # A continuity blocker is a HARD gate — it cannot be style-scored away.
     passed = (best_score >= PASS_SCORE
               and not length_findings(best, target_chars)
+              and not _balance_findings(best, target_chars, forbidden_terms)
               and not any(v.severity == "blocker" for v in remaining))
     return RevisionResult(
         draft=best, score=best_score, iterations=iterations,
