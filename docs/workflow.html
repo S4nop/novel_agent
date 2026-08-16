@@ -278,9 +278,9 @@
     <div class="arrowwrap"><div class="arrow"></div></div>
 
     <div class="rowflex">
-      <div class="node llm todo" data-tip="원고의 주장을 캐논과 대조해 모순을 하드 블록.&#10;실측: 모델이 나이·장소를 지어내고도 스스로 신고하지 않았습니다.&#10;→ 선택이 아니라 필수 구성요소.">
+      <div class="node llm" data-tip="원고의 주장을 캐논과 대조해 모순을 하드 블록. 구현 완료.&#10;결정론 규칙(퇴장 인물·용어 표기·예정 인물)은 LLM 없이 매 수정 반복마다 실행됩니다.&#10;LLM 판정은 캐논과 본문만 보는 블라인드 호출(계획 의도는 보지 않음).&#10;차단 시 캐논에 커밋하지 않습니다.">
         <span class="idx">13</span>
-        <div class="kind">TRACK A · LLM <span class="st todo">미구현</span></div>
+        <div class="kind">TRACK A · LLM <span class="st built">구현됨</span></div>
         <div class="name">연속성 검사</div>
         <div class="art">캐논 대조 · 하드 블록</div>
       </div>
@@ -317,9 +317,9 @@
         <div class="art">→ <code>AcceptedEpisode</code></div>
       </div>
       <div class="step">→</div>
-      <div class="node llm todo" data-tip="★ 가장 중요한 미구현 항목.&#10;승인된 원고에서 상태를 추출해 캐논에 커밋합니다.&#10;이것이 없으면 캐논이 누적되지 않아 '연재'가 성립하지 않습니다.">
+      <div class="node llm todo" data-tip="★ 남은 가장 중요한 항목: extract_canon_delta().&#10;결정론 절반(사이다 부채·떡밥 기한·요약·화 기록)은 구현되어 매 화 누적됩니다.&#10;LLM 절반(승인 원고에서 인물·세계 상태 추출)이 없어 캐논 사실은 아직 자동 누적되지 않습니다.">
         <span class="idx">18</span>
-        <div class="kind">LLM <span class="st todo">미구현</span></div>
+        <div class="kind">LLM <span class="st todo">절반 구현</span></div>
         <div class="name">캐논화 (Canonicalizer)</div>
         <div class="art">→ <code>CanonDelta</code> → 캐논</div>
       </div>
@@ -370,12 +370,12 @@
       <tr><td>비트시트 설계 (L3)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>BeatSheet</code></td><td>구현됨</td></tr>
       <tr><td>컨텍스트팩 조립</td><td><span class="dot" style="background:var(--kind-code)"></span>코드</td><td><code>ContextPack</code></td><td>구현됨</td></tr>
       <tr><td>집필</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>Draft</code>·<code>FactRequest</code></td><td>구현됨</td></tr>
-      <tr><td>연속성 검사 (Track A)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>모순 하드 블록</td><td>미구현</td></tr>
+      <tr><td>연속성 검사 (Track A)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM+코드</td><td>모순 하드 블록</td><td>구현됨</td></tr>
       <tr><td>크래프트 심사 (Track B)</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>루브릭 채점</td><td>미구현</td></tr>
       <tr><td>문체 린트 (Track C)</td><td><span class="dot" style="background:var(--kind-code)"></span>코드</td><td>0–100점 + 위반</td><td>구현됨</td></tr>
       <tr><td>수정 루프</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>RevisedDraft</code></td><td>구현됨</td></tr>
       <tr><td>사람 승인 ▣</td><td><span class="dot" style="background:var(--kind-gate)"></span>사람 게이트</td><td><code>AcceptedEpisode</code></td><td>구현됨</td></tr>
-      <tr><td>캐논화</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td><code>CanonDelta</code> → 캐논</td><td>미구현 ★</td></tr>
+      <tr><td>캐논화</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM+코드</td><td><code>CanonDelta</code> → 캐논</td><td>절반 구현 ★</td></tr>
       <tr><td>아크 감사 / 완결 판정</td><td><span class="dot" style="background:var(--kind-llm)"></span>LLM</td><td>재계획 지시·완결</td><td>미구현</td></tr>
     </tbody>
   </table>
