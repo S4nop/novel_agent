@@ -88,8 +88,7 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
 # length. Hook and 절단 are here because they are the mechanic that sells the
 # next episode, not a matter of taste.
 _STRUCTURAL_RULES = ("지문 부족(대사 과다)", "대사 줄 비중",
-                     "도입 훅 약함", "절단 실패(다음 화를 안 봐도 됨)",
-                     "다음 화로 이어질 압력 없음")
+                     "도입 훅 약함", "절단 실패(다음 화를 안 봐도 됨)")
 
 
 def _balance_findings(draft: Draft, target: int,

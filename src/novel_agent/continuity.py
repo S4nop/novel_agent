@@ -25,7 +25,7 @@ vocabulary across tracks rather than a parallel one (invariant #4).
 """
 from __future__ import annotations
 
-from .artifacts import BeatSheet, BeatType, Canon, Draft
+from .artifacts import BeatSheet, Canon, Draft
 from .llm import LLM
 from .prompts import render
 from .schemas import ContinuityReportDraft
@@ -39,7 +39,6 @@ RULE_RETIRED_ACTOR = "캐논 위반: 퇴장한 인물 등장"
 RULE_GLOSSARY_DRIFT = "캐논 위반: 용어 표기 흔들림"
 RULE_PLANNED_ABSENT = "계획 이탈: 예정 인물 부재"
 RULE_CANON_CONTRADICTION = "캐논 위반: 사실 모순"
-RULE_NO_FORWARD_PRESSURE = "다음 화로 이어질 압력 없음"
 
 
 def _mentions(prose: str, card_name: str, aliases: list[str]) -> str | None:
@@ -78,22 +77,7 @@ def deterministic_findings(draft: Draft, beats: BeatSheet, canon: Canon) -> list
                     limit="0회", limit_num=0,
                     evidence=f"'{g.term}' → 정본 표기 '{g.canonical_form}'"))
 
-    # 3) forward pressure. Curiosity about the next episode comes from the flow
-    #    of the story, not from a device on the last line — so this is checked on
-    #    the PLAN, not the prose. An episode that plants nothing and leaves
-    #    nothing open has closed the loop it opened, and no ending can rescue it.
-    #    Measured: 1화 planted 0 떡밥 and ended with the protagonist moving on to
-    #    the next assignment, which is exactly what the engine prescribed.
-    opens_nothing = not beats.seeds_to_plant
-    has_cliff_beat = BeatType.CLIFFHANGER in beats.beat_types()
-    if opens_nothing and not has_cliff_beat:
-        out.append(Violation(
-            rule=RULE_NO_FORWARD_PRESSURE, severity="major", count=1,
-            limit="1건 이상", limit_num=1,
-            evidence="이 화는 새로 여는 것 없이 닫힙니다 — 떡밥 0건, 절단 비트 없음. "
-                     "독자가 다음 화를 볼 이유가 구조적으로 없습니다."))
-
-    # 4) the plan said this entity would appear and it did not. A reconciliation
+    # 3) the plan said this entity would appear and it did not. A reconciliation
     #    signal for the re-planner, not necessarily an error — hence minor.
     absent = [e for e in beats.entities_present if e and e not in prose]
     if absent:
