@@ -26,6 +26,7 @@ from ..artifacts import Draft, Summary
 from ..canon_store import CanonStore
 from ..canonicalizer import canonicalize_episode, commit_episode_state
 from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
+from ..craft import judge_craft
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
 from ..drafter import draft_episode
@@ -414,6 +415,8 @@ def episode(pid: str, body: DraftIn):
         # so this is the only thing standing between an unattended run and
         # accumulating canon damage.
         continuity = check_continuity(llm, draft, beats, canon)
+        # Track B — advisory, never gates (DESIGN §3)
+        craft = judge_craft(llm, draft, profile, canon, store.load_voice_bible())
 
         # The prose file is always written — the author must be able to read a
         # rejected draft. Canon is a different matter.
@@ -448,6 +451,7 @@ def episode(pid: str, body: DraftIn):
             "passed": (bool(result.passed) and not blocked) if result else None,
             "continuity": [_violation_json(v) for v in continuity],
             "continuity_blocked": blocked,
+            "craft": [_violation_json(v) for v in craft],
             # was this episode written into canon, or held back for review?
             "committed": committed,
             "canon_delta": ({

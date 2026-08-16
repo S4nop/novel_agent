@@ -140,3 +140,16 @@ class CanonDeltaDraft(BaseModel):
     new_characters: list[NewCharacterDraft] = Field(default_factory=list)
     new_world_rules: list[str] = Field(default_factory=list)
     new_glossary_terms: list[str] = Field(default_factory=list)
+
+
+# ── Track B craft judging (DESIGN §3, 클로드 제안 5) ──────────────────────────
+class CraftFindingDraft(BaseModel):
+    """One craft problem, with the evidence that justifies it."""
+    dimension: str = Field(description="plot | character | genre 중 하나")
+    problem: str = Field(description="무엇이 문제인지 한 문장")
+    evidence: str = Field(description="본문에서 근거가 되는 짧은 인용")
+    severity: str = Field(description="major | minor 중 하나")
+
+
+class CraftReportDraft(BaseModel):
+    findings: list[CraftFindingDraft] = Field(default_factory=list)

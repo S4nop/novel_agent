@@ -33,6 +33,7 @@ from .canon_store import CanonStore
 from .canonicalizer import canonicalize_episode, commit_episode_state
 from .context_pack import ContextPackBuilder
 from .continuity import blocks_acceptance, check_continuity, deterministic_findings
+from .craft import judge_craft
 from .drafter import draft_episode
 from .llm import LLM, LLMRefusal, Usage
 from .nodes import plan_episode, seed_arc_map
@@ -62,6 +63,7 @@ class EpisodeOutcome:
     chars: int
     score: int
     continuity_blockers: int
+    craft_findings: int = 0
     reason: str = ""
 
 
@@ -125,7 +127,11 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         extra_findings=lambda d: deterministic_findings(d, beats, canon),
     )
     continuity = check_continuity(llm, result.draft, beats, canon)
-    return beats, result, continuity
+    # Track B is ADVISORY: it reports craft problems for the author and the
+    # reviser but never gates, because a subjective judge with blocking power
+    # halts an unattended run on an opinion.
+    craft = judge_craft(llm, result.draft, profile, canon, store.load_voice_bible())
+    return beats, result, continuity, craft
 
 
 def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
@@ -150,7 +156,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             break
 
         try:
-            beats, result, continuity = _plan_and_write(llm, store, episode, cfg)
+            beats, result, continuity, craft = _plan_and_write(llm, store, episode, cfg)
         except LLMRefusal as e:
             consecutive_failures += 1
             report.outcomes.append(EpisodeOutcome(
@@ -174,6 +180,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             episode=episode, passed=passed, committed=passed,
             chars=result.draft.char_count, score=result.score,
             continuity_blockers=sum(1 for v in continuity if v.severity == "blocker"),
+            craft_findings=len(craft),
             reason="" if passed else _why(result, continuity, blocked)))
 
         if not passed and consecutive_failures >= cfg.max_consecutive_failures:
