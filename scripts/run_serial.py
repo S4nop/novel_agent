@@ -33,12 +33,20 @@ def main() -> None:
     ap.add_argument("--converge-within", type=int, default=5,
                     help="episodes before target at which to start closing threads")
     ap.add_argument("--answers", default=None, help="interview answers, for 금기어 enforcement")
+    ap.add_argument("--reset", action="store_true",
+                    help="rewind the serial to the locked setup and start from 1화. "
+                         "Deleting episodes/ by hand is NOT enough — canon and the "
+                         "summary keep what the serial accumulated.")
     a = ap.parse_args()
 
     run = pathlib.Path(a.run)
     store = CanonStore(run / "_novel")
     if not (run / "_novel" / "canon.json").exists():
         raise SystemExit(f"{run} has no locked canon — run scripts/run_setup.py first")
+
+    if a.reset:
+        store.reset_serial()
+        print(f"■ 연재 초기화: 셋업(전제·캐논·보이스)은 유지, 누적분은 되감음")
 
     forbidden: list[str] = []
     if a.answers:

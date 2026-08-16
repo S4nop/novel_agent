@@ -161,6 +161,38 @@ class CanonStore:
                 path.read_text(encoding="utf-8"), encoding="utf-8")
         path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
 
+    def reset_serial(self, *, keep_setup: bool = True) -> None:
+        """Rewind to the locked setup so the serial can be re-run from 1화.
+
+        Deleting episodes/ ALONE is not a reset and is an easy mistake to make:
+        canon keeps the facts the Canonicalizer extracted, the summary keeps
+        "1화: …", and the ledgers keep their debt. The next run is then asked to
+        write episode 1 of a story whose canon already contains that story's
+        ending, so every draft contradicts canon and Track A blocks all of them.
+        Measured — that is exactly what a partial reset produced.
+
+        keep_setup=True preserves the human-locked artifacts (GenreProfile,
+        NorthStar, Canon's *authored* shape, VoiceBible) but drops everything
+        the serial accumulated. Character status/knowledge accrued from episodes
+        cannot be separated from the authored card, so canon is rewound to
+        version 0 with per-episode knowledge cleared.
+        """
+        import shutil
+
+        shutil.rmtree(self.episodes_dir, ignore_errors=True)
+        self.save_summary(Summary())
+        self.save_rhythm(RhythmState())
+        self.save_foreshadow(ForeshadowLedger())
+
+        canon = self.load_canon()
+        for card in canon.characters.values():
+            card.known_facts = []
+            card.current_location = ""
+            card.condition = ""
+        canon.version = 0
+        canon.last_modified_by = "author" if not keep_setup else canon.last_modified_by
+        self.save_canon(canon)
+
     def episode_versions(self, n: int) -> list[EpisodeRecord]:
         """Superseded takes of episode n, oldest first. Empty if never redrafted."""
         archive = self.episodes_dir / "versions"

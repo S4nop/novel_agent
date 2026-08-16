@@ -130,3 +130,58 @@ def test_archived_versions_do_not_confuse_the_resume_point(tmp_path):
         s.commit_episode(EpisodeRecord(episode_number=1, prose="p", accepted_draft_hash="a"))
     s.commit_episode(EpisodeRecord(episode_number=2, prose="p", accepted_draft_hash="a"))
     assert s.latest_episode_number() == 2        # not confused by versions/
+
+
+# ── resetting a serial (footgun found by a live run) ─────────────────────────
+def test_reset_rewinds_everything_the_serial_accumulated(tmp_path):
+    """Deleting episodes/ alone is NOT a reset: canon keeps the extracted facts
+    and the summary keeps "1화: …", so the next run writes episode 1 against a
+    canon that already holds that story's ending and Track A blocks every draft.
+    Measured on a live run — three attempts, all continuity-blocked."""
+    from novel_agent.artifacts import CanonDelta, EpisodeRecord, KnownFact, PlannedSeed
+
+    s = _store(tmp_path)
+    s.commit_episode(EpisodeRecord(episode_number=1, prose="p", accepted_draft_hash="a"))
+    s.apply_delta(CanonDelta(source_episode=1, new_known_facts={
+        "홍길동": [KnownFact(fact="정체가 드러났다", learned_episode=1)]}))
+    summary = s.load_summary(); summary.story_so_far = "1화: 무언가 일어남"
+    s.save_summary(summary)
+    ledger = s.load_foreshadow(); ledger.plant(PlannedSeed(proposed_seed_id="x",
+                                   description="떡밥", due_by_ep=5), episode=1)
+    s.save_foreshadow(ledger)
+
+    s.reset_serial()
+
+    assert s.latest_episode_number() == 0
+    assert s.load_summary().story_so_far == ""
+    assert s.load_foreshadow().seeds == {}
+    assert s.load_rhythm().frustration_debt == 0
+    canon = s.load_canon()
+    assert canon.version == 0
+    assert all(not c.known_facts for c in canon.characters.values())
+
+
+def test_reset_keeps_the_human_locked_setup(tmp_path):
+    """A reset must not cost the author their premise, voice, or cast — only the
+    serial's accumulation."""
+    s = _store(tmp_path)
+    before_cast = sorted(s.load_canon().characters)
+    before_premise = s.load_north_star().premise
+    before_voice = s.load_voice_bible().spec
+
+    s.reset_serial()
+
+    assert sorted(s.load_canon().characters) == before_cast
+    assert s.load_north_star().premise == before_premise
+    assert s.load_voice_bible().spec == before_voice
+
+
+def test_a_reset_store_can_start_a_serial_from_episode_one(tmp_path):
+    from novel_agent.artifacts import EpisodeRecord
+
+    s = _store(tmp_path)
+    for n in (1, 2, 3):
+        s.commit_episode(EpisodeRecord(episode_number=n, prose="p", accepted_draft_hash="a"))
+    assert s.latest_episode_number() == 3
+    s.reset_serial()
+    assert s.latest_episode_number() == 0        # driver resumes from 1화
