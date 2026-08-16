@@ -78,3 +78,55 @@ def test_episode_round_trips_and_reports_latest_number(tmp_path):
     s.commit_episode(rec)
     assert s.load_episode(1) == rec
     assert s.latest_episode_number() == 1
+
+
+# ── episode versioning (클로드 제안 8) ────────────────────────────────────────
+def test_redrafting_an_episode_archives_the_version_it_replaces(tmp_path):
+    """Regression: re-drafting overwrote silently, so a worse retry destroyed a
+    better take with no way back. The driver retries, so this is a live risk."""
+    from novel_agent.artifacts import EpisodeRecord
+
+    s = _store(tmp_path)
+    s.commit_episode(EpisodeRecord(episode_number=1, prose="첫 번째 원고",
+                                   accepted_draft_hash="a"))
+    s.commit_episode(EpisodeRecord(episode_number=1, prose="두 번째 원고",
+                                   accepted_draft_hash="b"))
+    s.commit_episode(EpisodeRecord(episode_number=1, prose="세 번째 원고",
+                                   accepted_draft_hash="c"))
+
+    assert s.load_episode(1).prose == "세 번째 원고"          # newest is current
+    assert [r.prose for r in s.episode_versions(1)] == ["첫 번째 원고", "두 번째 원고"]
+
+
+def test_a_first_commit_archives_nothing(tmp_path):
+    from novel_agent.artifacts import EpisodeRecord
+
+    s = _store(tmp_path)
+    s.commit_episode(EpisodeRecord(episode_number=1, prose="유일한 원고",
+                                   accepted_draft_hash="a"))
+    assert s.episode_versions(1) == []
+
+
+def test_versions_are_kept_per_episode(tmp_path):
+    from novel_agent.artifacts import EpisodeRecord
+
+    s = _store(tmp_path)
+    for n in (1, 2):
+        s.commit_episode(EpisodeRecord(episode_number=n, prose=f"{n}화 v1",
+                                       accepted_draft_hash="a"))
+        s.commit_episode(EpisodeRecord(episode_number=n, prose=f"{n}화 v2",
+                                       accepted_draft_hash="b"))
+    assert [r.prose for r in s.episode_versions(1)] == ["1화 v1"]
+    assert [r.prose for r in s.episode_versions(2)] == ["2화 v1"]
+
+
+def test_archived_versions_do_not_confuse_the_resume_point(tmp_path):
+    """latest_episode_number() does int(p.stem) — an archived '0001.v1.json'
+    landing beside the current files would raise ValueError and break resume."""
+    from novel_agent.artifacts import EpisodeRecord
+
+    s = _store(tmp_path)
+    for _ in range(3):
+        s.commit_episode(EpisodeRecord(episode_number=1, prose="p", accepted_draft_hash="a"))
+    s.commit_episode(EpisodeRecord(episode_number=2, prose="p", accepted_draft_hash="a"))
+    assert s.latest_episode_number() == 2        # not confused by versions/

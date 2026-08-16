@@ -144,9 +144,33 @@ class CanonStore:
 
     # ── episodes ───────────────────────────────────────────────────────────────
     def commit_episode(self, record: EpisodeRecord) -> None:
+        """Commit an episode, archiving any version it replaces (클로드 제안 8).
+
+        Re-drafting the same episode used to overwrite silently, so a worse
+        retry destroyed a better take with no way back. Now the driver can retry
+        freely and the author can compare — the previous version is kept before
+        the new one lands.
+        """
         self.episodes_dir.mkdir(parents=True, exist_ok=True)
         path = self.episodes_dir / f"{record.episode_number:04d}.json"
+        if path.exists():
+            archive = self.episodes_dir / "versions"
+            archive.mkdir(exist_ok=True)
+            prior = len(list(archive.glob(f"{record.episode_number:04d}.v*.json"))) + 1
+            (archive / f"{record.episode_number:04d}.v{prior}.json").write_text(
+                path.read_text(encoding="utf-8"), encoding="utf-8")
         path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
+
+    def episode_versions(self, n: int) -> list[EpisodeRecord]:
+        """Superseded takes of episode n, oldest first. Empty if never redrafted."""
+        archive = self.episodes_dir / "versions"
+        if not archive.exists():
+            return []
+        return [
+            EpisodeRecord.model_validate_json(p.read_text(encoding="utf-8"))
+            for p in sorted(archive.glob(f"{n:04d}.v*.json"),
+                            key=lambda p: int(p.stem.split(".v")[1]))
+        ]
 
     def load_episode(self, n: int) -> EpisodeRecord | None:
         path = self.episodes_dir / f"{n:04d}.json"
