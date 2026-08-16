@@ -26,7 +26,7 @@ from ..artifacts import Draft, Summary
 from ..canon_store import CanonStore
 from ..canonicalizer import canonicalize_episode, commit_episode_state
 from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
-from ..craft import judge_craft
+from ..craft import judge_craft, judge_opening_and_ending
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
 from ..drafter import draft_episode
@@ -396,6 +396,7 @@ def episode(pid: str, body: DraftIn):
             anti_patterns=profile.forbidden_anti_patterns,
         )
         draft = draft_episode(llm, pack, max_tokens=32768)
+        structural = judge_opening_and_ending(llm, draft)
         first = style_score(draft.prose, target_chars=beats.length_target,
                             forbidden_terms=forbidden)
 
@@ -407,7 +408,8 @@ def episode(pid: str, body: DraftIn):
                                   # free rules run every iteration so canon breaks
                                   # get FIXED, not merely reported at the end
                                   extra_findings=lambda d: deterministic_findings(
-                                      d, beats, canon))
+                                      d, beats, canon),
+                                  structural_findings=structural)
             draft = result.draft
 
         # Track A, full pass — one judge call on the final draft. The drafter
@@ -416,7 +418,8 @@ def episode(pid: str, body: DraftIn):
         # accumulating canon damage.
         continuity = check_continuity(llm, draft, beats, canon)
         # Track B — advisory, never gates (DESIGN §3)
-        craft = judge_craft(llm, draft, profile, canon, store.load_voice_bible())
+        craft = list(judge_craft(llm, draft, profile, canon,
+                                 store.load_voice_bible())) + list(structural)
 
         # The prose file is always written — the author must be able to read a
         # rejected draft. Canon is a different matter.

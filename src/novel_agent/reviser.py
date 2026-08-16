@@ -84,18 +84,28 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
     return "\n".join(f"- {l}" for l in lines)
 
 
+# Structural faults, as opposed to stylistic nits: the gate treats these like
+# length. Hook and 절단 are here because they are the mechanic that sells the
+# next episode, not a matter of taste.
+_STRUCTURAL_RULES = ("지문 부족(대사 과다)", "대사 줄 비중",
+                     "도입 훅 약함", "절단 실패(다음 화를 안 봐도 됨)")
+
+
 def _balance_findings(draft: Draft, target: int,
-                      forbidden_terms: list[str] | None = None) -> list[Violation]:
-    """Dialogue/narration balance failures — a structural fault like length, not
-    a stylistic nit, so the gate treats it as one."""
-    return [v for v in lint_prose(draft.prose, target_chars=target,
-                                  forbidden_terms=forbidden_terms)
-            if v.rule in ("지문 부족(대사 과다)", "대사 줄 비중")]
+                      forbidden_terms: list[str] | None = None,
+                      extra: list[Violation] | None = None) -> list[Violation]:
+    """Structural failures that must not be traded away for a better style score."""
+    found = [v for v in lint_prose(draft.prose, target_chars=target,
+                                   forbidden_terms=forbidden_terms)
+             if v.rule in _STRUCTURAL_RULES]
+    found += [v for v in (extra or []) if v.rule in _STRUCTURAL_RULES]
+    return found
 
 
 def _fitness(draft: Draft, target: int,
              forbidden_terms: list[str] | None = None,
-             extra_findings=None) -> tuple[int, int, int]:
+             extra_findings=None,
+             structural: list[Violation] | None = None) -> tuple[int, int, int]:
     """Ranking key for keep-best, most significant criterion first.
 
     Continuity outranks everything: a canon break is a hard gate failure, so a
@@ -113,7 +123,7 @@ def _fitness(draft: Draft, target: int,
     # tier, so any style-level penalty loses to it and the loop learns to hit
     # 분량 by piling on dialogue — measured at 66-83% before this.
     gates = ((0 if length_findings(draft, target) else 1)
-             + (0 if _balance_findings(draft, target, forbidden_terms) else 1))
+             + (0 if _balance_findings(draft, target, forbidden_terms, structural) else 1))
     return (-blockers, gates,
             style_score(draft.prose, target_chars=target,
                         forbidden_terms=forbidden_terms))
@@ -133,11 +143,15 @@ def revise_draft(
     # injected so the reviser needs no canon knowledge and stays testable.
     # The expensive LLM continuity judge runs once at the gate, not in here.
     extra_findings=None,
+    # Structural findings judged once on the incoming draft (hook / 절단).
+    # Not recomputed per iteration: that would cost an LLM call each pass.
+    structural_findings: list[Violation] | None = None,
     max_tokens: int = 32768,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
     best = draft
-    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings)
+    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings,
+                        structural_findings)
     iterations = 0
 
     for _ in range(max_iterations):
@@ -145,6 +159,8 @@ def revise_draft(
                                 forbidden_terms=forbidden_terms)
         if extra_findings is not None:
             violations = violations + list(extra_findings(best))
+        if structural_findings:
+            violations = violations + list(structural_findings)
         length = length_findings(best, target_chars)
         if not violations and not length:
             break
@@ -168,7 +184,8 @@ def revise_draft(
             fact_requests=requests or draft.fact_requests,
         )
         # keep-best: an edit that makes things worse is discarded
-        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings)
+        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings,
+                       structural_findings)
         if fit > best_fit or (
             fit == best_fit
             and abs(candidate.char_count - target_chars) < abs(best.char_count - target_chars)
@@ -181,10 +198,13 @@ def revise_draft(
                            forbidden_terms=forbidden_terms)
     if extra_findings is not None:
         remaining = remaining + list(extra_findings(best))
+    if structural_findings:
+        remaining = remaining + list(structural_findings)
     # A continuity blocker is a HARD gate — it cannot be style-scored away.
     passed = (best_score >= PASS_SCORE
               and not length_findings(best, target_chars)
-              and not _balance_findings(best, target_chars, forbidden_terms)
+              and not _balance_findings(best, target_chars, forbidden_terms,
+                                        structural_findings)
               and not any(v.severity == "blocker" for v in remaining))
     return RevisionResult(
         draft=best, score=best_score, iterations=iterations,

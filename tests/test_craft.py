@@ -104,3 +104,59 @@ def test_every_craft_rule_explains_itself():
     for r in (RULE_PLOT, RULE_CHARACTER, RULE_GENRE):
         m = rule_meta(r)
         assert m and m.why and m.fix, r
+
+
+# ── hook / 절단 — gate criteria, not taste ────────────────────────────────────
+class TestOpeningAndEnding:
+    """The prompt has asked for a strong 훅/절단 since day one and nothing ever
+    checked. An episode shipped ending on a character boarding a transport and a
+    door closing — a closing shot, not a cliffhanger."""
+
+    @staticmethod
+    def _judge(report=None, boom=False, prose="본문 " * 200):
+        from novel_agent.craft import judge_opening_and_ending
+        llm = StubJudge(report, boom)
+        return llm, judge_opening_and_ending(llm, Draft(episode_number=1, prose=prose))
+
+    def test_a_fade_out_ending_is_reported(self):
+        from novel_agent.schemas import (OpeningEndingFindingDraft,
+                                         OpeningEndingReportDraft)
+        _, vs = self._judge(OpeningEndingReportDraft(findings=[
+            OpeningEndingFindingDraft(part="cliffhanger", problem="인물이 퇴장하며 끝남",
+                                      evidence="문이 닫히는 소리가 짧게 울렸다")]))
+        from novel_agent.craft import RULE_CLIFFHANGER
+        assert vs[0].rule == RULE_CLIFFHANGER and vs[0].severity == "major"
+
+    def test_these_count_toward_the_gate_unlike_other_craft_findings(self):
+        """Structural, not subjective — the reviser must not trade them away for
+        a better style score."""
+        from novel_agent.craft import RULE_CLIFFHANGER, RULE_HOOK
+        from novel_agent.reviser import _STRUCTURAL_RULES
+        assert RULE_HOOK in _STRUCTURAL_RULES
+        assert RULE_CLIFFHANGER in _STRUCTURAL_RULES
+
+    def test_a_claim_without_evidence_is_dropped(self):
+        from novel_agent.schemas import (OpeningEndingFindingDraft,
+                                         OpeningEndingReportDraft)
+        _, vs = self._judge(OpeningEndingReportDraft(findings=[
+            OpeningEndingFindingDraft(part="hook", problem="약함", evidence="")]))
+        assert vs == []
+
+    def test_a_judge_failure_is_silent(self):
+        _, vs = self._judge(boom=True)
+        assert vs == []
+
+    def test_only_the_two_ends_are_sent_not_the_whole_episode(self):
+        """Keeps the call small and stops the judge grading the middle."""
+        prose = "머리" * 600 + "중간" * 3000 + "꼬리" * 600
+        llm, _ = self._judge(prose=prose)
+        sent = llm.prompts[-1]
+        assert "머리" in sent and "꼬리" in sent
+        assert sent.count("중간") < 100
+
+    def test_both_rules_explain_themselves(self):
+        from novel_agent.craft import RULE_CLIFFHANGER, RULE_HOOK
+        from novel_agent.style import rule_meta
+        for r in (RULE_HOOK, RULE_CLIFFHANGER):
+            m = rule_meta(r)
+            assert m and m.why and m.fix and m.bad and m.good, r

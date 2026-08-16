@@ -153,3 +153,14 @@ class CraftFindingDraft(BaseModel):
 
 class CraftReportDraft(BaseModel):
     findings: list[CraftFindingDraft] = Field(default_factory=list)
+
+
+# ── hook / cliffhanger (연독률의 두 지점) ─────────────────────────────────────
+class OpeningEndingFindingDraft(BaseModel):
+    part: str = Field(description="hook | cliffhanger 중 하나")
+    problem: str = Field(description="왜 실패인지 한 문장")
+    evidence: str = Field(description="본문에서 근거가 되는 짧은 인용")
+
+
+class OpeningEndingReportDraft(BaseModel):
+    findings: list[OpeningEndingFindingDraft] = Field(default_factory=list)

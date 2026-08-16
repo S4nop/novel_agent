@@ -33,7 +33,7 @@ from .canon_store import CanonStore
 from .canonicalizer import canonicalize_episode, commit_episode_state
 from .context_pack import ContextPackBuilder
 from .continuity import blocks_acceptance, check_continuity, deterministic_findings
-from .craft import judge_craft
+from .craft import judge_craft, judge_opening_and_ending
 from .drafter import draft_episode
 from .llm import LLM, LLMRefusal, Usage
 from .nodes import plan_episode, seed_arc_map
@@ -125,17 +125,21 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         current_episode=episode, previous_episode=prev,
     )
     draft = draft_episode(llm, pack, max_tokens=32768)
+    # Judged on the draft so the revise loop can actually repair a weak hook or
+    # a fade-out ending. Judging after revision would only report the failure.
+    structural = judge_opening_and_ending(llm, draft)
     result = revise_draft(
         llm, draft, pack, target_chars=beats.length_target,
         max_iterations=cfg.revise_iterations, forbidden_terms=cfg.forbidden_terms,
         extra_findings=lambda d: deterministic_findings(d, beats, canon),
+        structural_findings=structural,
     )
     continuity = check_continuity(llm, result.draft, beats, canon)
     # Track B is ADVISORY: it reports craft problems for the author and the
     # reviser but never gates, because a subjective judge with blocking power
     # halts an unattended run on an opinion.
     craft = judge_craft(llm, result.draft, profile, canon, store.load_voice_bible())
-    return beats, result, continuity, craft
+    return beats, result, continuity, list(craft) + list(structural)
 
 
 def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,

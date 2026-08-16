@@ -41,6 +41,8 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "canon_extract": ("canon", "episode_number", "prose"),
     "craft_system": (),
     "craft_check": ("genre", "voices", "episode_number", "prose"),
+    "opening_ending_system": (),
+    "opening_ending_check": ("episode_number", "opening", "ending"),
 }
 
 _CACHE: dict[str, str] = {}

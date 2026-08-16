@@ -3,5 +3,15 @@
   "max_consecutive_frustration": 2,
   "target_catharsis_cadence": 3,
   "episodes_since_payoff": 0,
-  "beat_log": []
+  "beat_log": [
+    [
+      "setup",
+      "frustration",
+      "escalation",
+      "reveal",
+      "payoff",
+      "frustration",
+      "cliffhanger"
+    ]
+  ]
 }

@@ -23,7 +23,7 @@ from __future__ import annotations
 from .artifacts import Canon, Draft, GenreProfile, VoiceBible
 from .llm import LLM
 from .prompt_store import render
-from .schemas import CraftReportDraft
+from .schemas import CraftReportDraft, OpeningEndingReportDraft
 from .style import Violation
 
 RULE_PLOT = "크래프트: 플롯 논리"
@@ -107,3 +107,52 @@ def judge_craft(
             evidence=f"{f.problem} — 근거: {f.evidence}"))
     order = {"major": 0, "minor": 1}
     return sorted(out, key=lambda v: order[v.severity])
+
+
+# ── hook and 절단 — the two points 연독률 actually turns on ────────────────────
+# These are NOT taste. "Does the episode end on an unresolved question" is a
+# structural property of the format, and it is the mechanic that sells the next
+# episode. So unlike the rest of Track B these carry gate weight: the prompt has
+# asked for a strong 훅/절단 since day one and nothing ever checked, which is how
+# an episode shipped ending on a character boarding a transport and a door
+# closing — a closing shot, not a cliffhanger.
+RULE_HOOK = "도입 훅 약함"
+RULE_CLIFFHANGER = "절단 실패(다음 화를 안 봐도 됨)"
+
+_PART_RULES = {"hook": RULE_HOOK, "cliffhanger": RULE_CLIFFHANGER}
+
+# Only the two ends are judged, so the call stays small and the judge cannot be
+# distracted by the middle.
+_EDGE_CHARS = 900
+
+
+def judge_opening_and_ending(llm: LLM, draft: Draft) -> list[Violation]:
+    """Structural check on the first and last passages. Findings are `major`
+    and count toward the gate (see reviser._structure_findings)."""
+    prose = draft.prose.strip()
+    if len(prose) < 200:
+        return []
+    try:
+        report = llm.structured(
+            [
+                {"role": "system", "content": render("opening_ending_system")},
+                {"role": "user", "content": render(
+                    "opening_ending_check",
+                    episode_number=draft.episode_number,
+                    opening=prose[:_EDGE_CHARS],
+                    ending=prose[-_EDGE_CHARS:])},
+            ],
+            OpeningEndingReportDraft,
+        )
+    except Exception:  # noqa: BLE001 — advisory on failure, never fatal
+        return []
+
+    out: list[Violation] = []
+    for f in report.findings or []:
+        rule = _PART_RULES.get((f.part or "").strip().lower())
+        if rule is None or not (f.problem and f.evidence):
+            continue
+        out.append(Violation(
+            rule=rule, severity="major", count=1, limit="0건", limit_num=0,
+            evidence=f"{f.problem} — 근거: {f.evidence}"))
+    return out

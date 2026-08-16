@@ -1,11 +1,13 @@
 {
-  "version": 0,
+  "version": 1,
   "genre_profile_version": 1,
   "last_modified_by": "llm",
   "characters": {
     "마커스": {
       "name": "마커스",
-      "aliases": [],
+      "aliases": [
+        "어사님"
+      ],
       "is_main_cast": true,
       "immutable_descriptors": [
         "흑인 이주민 외모",
@@ -69,11 +71,20 @@
       "secrets": [
         "장부를 이중 기재해 세금을 착복해 왔다"
       ],
-      "status": "active",
+      "status": "체포됨",
       "current_location": "",
       "condition": "",
       "power_level": "물리력은 없으나 지역 내 정치적 영향력을 보유",
-      "known_facts": [],
+      "known_facts": [
+        {
+          "fact": "물류 위임서에 본인 서명으로 곡물 마흔두 석을 존재하지 않는 창고로 반출시킨 사실이 로그와 인장 대조로 확인됨",
+          "learned_episode": 1
+        },
+        {
+          "fact": "주민들에게 곡물세를 이중 징수한 사실이 곡물 반환 조치로 확인됨",
+          "learned_episode": 1
+        }
+      ],
       "relationships": {}
     },
     "순덕": {
