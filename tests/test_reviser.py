@@ -178,3 +178,28 @@ def test_an_unbalanced_episode_cannot_pass_the_gate():
                           target_chars=len(allshouty), max_iterations=1)
     assert result.passed is False
     assert any(v.rule == "지문 부족(대사 과다)" for v in result.remaining)
+
+
+def test_the_reviser_is_told_HOW_to_fix_each_rule_not_just_the_number():
+    """RULE_INFO's fix text was written for the author-facing UI (테스트 피드백 3)
+    and never reached the model doing the work, which got only "현재 7, 한도 5문장".
+    Measured on a clean store: three attempts failed the same rhythm rules with
+    scores 78 -> 79 -> 74 — the loop had no method to apply."""
+    from novel_agent.reviser import _fix_instructions
+    from novel_agent.style import Violation, rule_meta
+
+    v = Violation(rule="다다다체(평서 종결 연속)", severity="major", count=7,
+                  limit="5문장", limit_num=5)
+    text = _fix_instructions([v], [])
+    assert "현재 7" in text                                  # the number stays
+    assert rule_meta(v.rule).fix in text                     # and now the method
+
+
+def test_an_evidence_bearing_finding_carries_its_method_too():
+    from novel_agent.reviser import _fix_instructions
+    from novel_agent.style import Violation
+
+    v = Violation(rule="강도부사(지문)", severity="major", count=2, limit="0",
+                  evidence="정말, 너무")
+    text = _fix_instructions([v], [])
+    assert "정말, 너무" in text and "부사를 지우고" in text

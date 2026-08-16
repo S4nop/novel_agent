@@ -68,10 +68,19 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
             "주고받게 만들면 분량과 대사 비중이 함께 올라갑니다."
         )
     for v in violations:
+        # RULE_INFO carries a concrete method for every rule. It was written for
+        # the author-facing UI (테스트 피드백 3) and never reached the model that
+        # actually has to perform the fix, which got only "현재 7, 한도 5문장" —
+        # a bare number, the exact complaint that feedback was about. Measured:
+        # three clean-store attempts failed on the same rhythm rules with scores
+        # going 78 -> 79 -> 74, i.e. the loop was not converging.
+        how = v.meta.fix if v.meta else ""
         if v.evidence:
-            lines.append(f"{v.rule}: 다음 표현을 전부 찾아 삭제하거나 대체 — {v.evidence}")
+            lines.append(f"{v.rule}: 다음 표현을 전부 찾아 삭제하거나 대체 — {v.evidence}"
+                         + (f" ({how})" if how else ""))
         else:
-            lines.append(f"{v.rule}: 현재 {v.count}, 한도 {v.limit} 이내로 맞추세요")
+            lines.append(f"{v.rule}: 현재 {v.count}, 한도 {v.limit} 이내로 맞추세요."
+                         + (f" 방법: {how}" if how else ""))
     return "\n".join(f"- {l}" for l in lines)
 
 
