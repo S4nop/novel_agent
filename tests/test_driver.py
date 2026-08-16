@@ -265,3 +265,21 @@ def test_a_committed_episode_also_carries_its_findings(tmp_path):
     r = run_serial(FakeLLM(), s, config=_cfg(target_episodes=1))
     assert r.outcomes[0].committed is True
     assert r.outcomes[0].prose
+
+
+def test_an_account_failure_stops_immediately_with_the_real_reason(tmp_path):
+    """A live run hit "credit balance is too low" and crashed with a traceback.
+    Retrying is pointless and the breaker is the wrong response — every
+    remaining episode fails identically, so "연속 실패 3회" would bury the actual
+    cause behind a misleading one."""
+    from novel_agent.llm import LLMUnavailable
+
+    class Broke(FakeLLM):
+        def text(self, messages, *, max_tokens=8192):
+            raise LLMUnavailable("credit balance is too low")
+
+    s = _store(tmp_path)
+    r = run_serial(Broke(), s, config=_cfg(target_episodes=10, max_consecutive_failures=3))
+    assert r.outcomes == []                       # no retries burned
+    assert "API 사용 불가" in r.stopped_because
+    assert "credit balance" in r.stopped_because  # the operator sees what to fix

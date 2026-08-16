@@ -251,3 +251,40 @@ def test_token_count_uses_the_real_endpoint_for_korean_text():
     llm, sent = make_llm(ok_json({"input_tokens": 1234}))
     assert llm.count_tokens("한국어 본문입니다.") == 1234
     assert sent[0]["model"] == "claude-sonnet-5"
+
+
+def test_a_billing_failure_is_not_retried(monkeypatch):
+    """Backing off five times against an empty account wastes minutes and still
+    fails. It must surface as LLMUnavailable on the first response."""
+    from novel_agent.llm import LLMUnavailable
+
+    monkeypatch.setattr("novel_agent.llm.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def handler(_r):
+        calls["n"] += 1
+        return httpx.Response(400, json={"type": "error", "error": {
+            "type": "invalid_request_error",
+            "message": "Your credit balance is too low to access the Anthropic API."}})
+
+    llm, _ = make_llm(handler)
+    with pytest.raises(LLMUnavailable, match="credit balance"):
+        llm.text(MESSAGES)
+    assert calls["n"] == 1, "a billing error must not be retried"
+
+
+def test_a_transient_error_is_still_retried(monkeypatch):
+    """The fatal-error path must not swallow the retry behaviour."""
+    monkeypatch.setattr("novel_agent.llm.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def handler(_r):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(529, json={"type": "error", "error": {
+                "type": "overloaded_error", "message": "overloaded"}})
+        return httpx.Response(200, content=_stream_body("복구"),
+                              headers={"content-type": "text/event-stream"})
+
+    llm, _ = make_llm(handler)
+    assert llm.text(MESSAGES) == "복구"

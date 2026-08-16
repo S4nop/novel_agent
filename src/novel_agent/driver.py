@@ -35,7 +35,7 @@ from .context_pack import ContextPackBuilder
 from .continuity import blocks_acceptance, check_continuity, deterministic_findings
 from .craft import judge_craft, judge_opening_and_ending
 from .drafter import draft_episode
-from .llm import LLM, LLMRefusal, Usage
+from .llm import LLM, LLMRefusal, LLMUnavailable, Usage
 from .nodes import plan_episode, seed_arc_map
 from .reviser import revise_draft
 from .style import Violation, forbidden_terms_from, style_score
@@ -166,6 +166,12 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
 
         try:
             beats, result, continuity, craft = _plan_and_write(llm, store, episode, cfg)
+        except LLMUnavailable as e:
+            # No retry, no breaker count: every remaining episode fails the same
+            # way, so burning the breaker would hide the real cause behind
+            # "연속 실패 3회".
+            report.stopped_because = f"API 사용 불가 — 재시도 무의미: {e}"
+            break
         except LLMRefusal as e:
             consecutive_failures += 1
             report.outcomes.append(EpisodeOutcome(

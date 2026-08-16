@@ -67,9 +67,29 @@ class LLMRefusal(RuntimeError):
     """The model declined, was filtered, or returned unusable output."""
 
 
+class LLMUnavailable(RuntimeError):
+    """The account cannot call the API at all — no credit, bad key, no access.
+
+    Distinct from a refusal because retrying is pointless and the circuit
+    breaker is the wrong response: every remaining episode would fail the same
+    way. An unattended run must stop immediately and say what to do.
+    """
+
+
 # Transient upstream conditions worth retrying (demand spikes, rate limits).
 _RETRY_STATUS = (429, 500, 502, 503, 504)
 _MAX_ATTEMPTS = 5
+
+
+_FATAL_MARKERS = ("credit balance is too low", "insufficient_quota",
+                  "authentication_error", "invalid x-api-key",
+                  "permission_error", "billing")
+
+
+def _fatal_account_error(exc: Exception) -> str:
+    """Account-level failures that no retry can clear."""
+    text = str(exc).lower()
+    return next((m for m in _FATAL_MARKERS if m in text), "")
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -88,6 +108,9 @@ def _with_retry(fn, *, attempts: int = _MAX_ATTEMPTS):
         try:
             return fn()
         except Exception as exc:  # noqa: BLE001 - re-raised below when not transient
+            marker = _fatal_account_error(exc)
+            if marker:
+                raise LLMUnavailable(str(exc)) from exc
             if attempt == attempts or not _is_transient(exc):
                 raise
             time.sleep(delay + random.uniform(0, 2))
