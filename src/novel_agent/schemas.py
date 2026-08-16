@@ -109,3 +109,34 @@ class ContinuityFindingDraft(BaseModel):
 
 class ContinuityReportDraft(BaseModel):
     findings: list[ContinuityFindingDraft] = Field(default_factory=list)
+
+
+# ── Canonicalizer, LLM half (DESIGN §3, 클로드 제안 1) ────────────────────────
+class CharacterUpdateDraft(BaseModel):
+    """Mutable current-status only. Empty string = unchanged."""
+    name: str = Field(description="캐논에 이미 있는 인물 이름")
+    status: str = Field(default="", description="변했을 때만: active/부상/투옥/사망 등")
+    current_location: str = Field(default="", description="변했을 때만")
+    condition: str = Field(default="", description="변했을 때만")
+    power_level: str = Field(default="", description="변했을 때만")
+    new_aliases: list[str] = Field(default_factory=list, description="이 화에서 새로 불린 호칭")
+
+
+class KnownFactDraft(BaseModel):
+    character: str = Field(description="이 사실을 알게 된 인물")
+    fact: str = Field(description="이 화에서 확정된 사실 한 줄")
+
+
+class NewCharacterDraft(BaseModel):
+    name: str
+    descriptors: list[str] = Field(default_factory=list, description="변하지 않는 외형·특징")
+    is_main_cast: bool = False
+
+
+class CanonDeltaDraft(BaseModel):
+    """What this episode CHANGED. Empty lists when nothing changed."""
+    character_updates: list[CharacterUpdateDraft] = Field(default_factory=list)
+    new_known_facts: list[KnownFactDraft] = Field(default_factory=list)
+    new_characters: list[NewCharacterDraft] = Field(default_factory=list)
+    new_world_rules: list[str] = Field(default_factory=list)
+    new_glossary_terms: list[str] = Field(default_factory=list)

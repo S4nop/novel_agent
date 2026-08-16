@@ -37,6 +37,8 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "revise_instruction": ("prefix", "suffix", "findings", "prose"),
     "continuity_system": (),
     "continuity_check": ("canon", "episode_number", "prose"),
+    "canon_extract_system": (),
+    "canon_extract": ("canon", "episode_number", "prose"),
 }
 
 _CACHE: dict[str, str] = {}

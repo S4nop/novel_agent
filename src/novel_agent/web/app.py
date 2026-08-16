@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from ..artifacts import Draft, Summary
 from ..canon_store import CanonStore
-from ..canonicalizer import commit_episode_state
+from ..canonicalizer import canonicalize_episode, commit_episode_state
 from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
@@ -426,8 +426,14 @@ def episode(pid: str, body: DraftIn):
         # ids, pushing 완결 further away each time.
         blocked = blocks_acceptance(continuity)
         committed = not blocked and (result.passed if result else True)
+        canon_delta = None
         if committed:
             commit_episode_state(store, draft, beats)
+            # The LLM half of the Canonicalizer. Runs ONLY on an accepted
+            # episode: extracting from a draft that failed the gate would write
+            # the contradiction into the source of truth. A failure here costs
+            # one episode's canon accumulation, not the run.
+            canon_delta = canonicalize_episode(llm, store, draft)
         out = {
             "episode": body.episode,
             "beat_sheet": beats.model_dump(mode="json"),
@@ -444,6 +450,13 @@ def episode(pid: str, body: DraftIn):
             "continuity_blocked": blocked,
             # was this episode written into canon, or held back for review?
             "committed": committed,
+            "canon_delta": ({
+                "new_characters": sorted(canon_delta.new_characters),
+                "updated": sorted(canon_delta.character_updates),
+                "new_facts": sum(len(v) for v in canon_delta.new_known_facts.values()),
+                "new_rules": len(canon_delta.new_world_rules),
+                "new_terms": [g.canonical_form for g in canon_delta.new_glossary],
+            } if canon_delta else None),
             "fact_requests": [f.question for f in draft.fact_requests],
             "violations": [_violation_json(v) for v in
                            lint_prose(draft.prose, target_chars=beats.length_target,

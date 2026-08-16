@@ -99,24 +99,44 @@ class CanonStore:
         for name, card in delta.new_characters.items():
             canon.characters[name] = card
 
+        # An author edit must not be silently reverted by the extractor
+        # (tester feedback 2-③). Knowledge is still appended — that is additive
+        # and safe — but the mutable status fields the author just corrected by
+        # hand are left alone.
+        author_owned = canon.last_modified_by == "author"
+
         for name, upd in delta.character_updates.items():
-            card = canon.characters[name]
-            if upd.status is not None:
-                card.status = upd.status
-            if upd.current_location is not None:
-                card.current_location = upd.current_location
-            if upd.condition is not None:
-                card.condition = upd.condition
-            if upd.power_level is not None:
-                card.power_level = upd.power_level
+            card = canon.characters.get(name)
+            if card is None:        # hallucinated name: drop, never auto-create
+                continue
+            if not author_owned:
+                if upd.status is not None:
+                    card.status = upd.status
+                if upd.current_location is not None:
+                    card.current_location = upd.current_location
+                if upd.condition is not None:
+                    card.condition = upd.condition
+                if upd.power_level is not None:
+                    card.power_level = upd.power_level
             card.aliases += [a for a in upd.add_aliases if a not in card.aliases]
             card.relationships.update(upd.add_relationships)
 
         for name, facts in delta.new_known_facts.items():
-            canon.characters[name].known_facts += facts  # append-only
+            card = canon.characters.get(name)
+            if card is None:
+                continue
+            seen = {f.fact for f in card.known_facts}
+            card.known_facts += [f for f in facts if f.fact not in seen]  # append-only
 
-        canon.world_rules += delta.new_world_rules
-        canon.glossary += delta.new_glossary
+        # dedupe against what canon already holds — a serial that re-appends the
+        # same rule every episode bloats the cache-stable prefix without bound
+        known_rules = {r.text for r in canon.world_rules}
+        canon.world_rules += [r for r in delta.new_world_rules if r.text not in known_rules]
+        known_terms = {g.canonical_form for g in canon.glossary}
+        canon.glossary += [g for g in delta.new_glossary if g.canonical_form not in known_terms]
+
+        # the writer is the extractor again; an author edit sets this back
+        canon.last_modified_by = "llm"
         canon.version += 1
 
         self.save_canon(canon)
