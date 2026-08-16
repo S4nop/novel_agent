@@ -51,7 +51,17 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
     lines = list(length)
     rules = {v.rule for v in violations}
 
-    if length and ("대사 줄 비중" in rules or "연속 지문 줄" in rules):
+    # Direct the length fix by WHICH way the balance is off. Emitting the
+    # add-dialogue advice unconditionally is what ratcheted one draft to 83%
+    # dialogue: every short draft was told to convert narration into talk, and
+    # no finding ever asked for the opposite.
+    if length and "지문 부족(대사 과다)" in rules:
+        lines.append(
+            "★ 분량은 대사로 채우지 마세요. 이미 대사 비중이 과합니다. 인물의 행동, "
+            "공간과 감각 묘사, 짧은 속내로 채우고, 티키타카가 길게 이어지는 구간은 "
+            "오히려 줄이세요."
+        )
+    elif length and ("대사 줄 비중" in rules or "연속 지문 줄" in rules):
         lines.append(
             "★ 분량과 대사 비중을 동시에 해결하는 유일한 방법: 지문 덩어리를 인물 간 "
             "짧은 대화로 바꿔 쓰세요. 서술로 설명한 내용을 인물이 말다툼·흥정·비아냥으로 "

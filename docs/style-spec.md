@@ -44,7 +44,8 @@ lenses converged on the same short list:
 | 지문에 사극체 (하였다/이니라/노라) — 대사에만 허용 | 0 | major |
 | 동일 종결어미 연속 | ≤2문장 | major |
 | 다다다체 (평서 종결 연속) | ≤5문장 | major |
-| 대사 줄 비중 | ≥40% | major |
+| 대사 줄 비중 | ≥40% (줄 기준) | major |
+| 지문 부족(대사 과다) | ≤65% (글자 기준) | major |
 | 연속 지문 줄 | ≤5줄 | major |
 | 평균 문장 길이 | ≤35자 | major |
 | 모음/자음 늘여쓰기 | ≤1 | major |
@@ -75,6 +76,15 @@ Measured with the *calibrated* lint (see "Lint calibration" below):
 
 Eliminated: 자기 칭찬 서술, 겹부호, 비장 선언 대사, 인물 라벨링, 번역체;
 느낌표 71 → 0; 대사 줄 비중 26% → 40%+. Only one 다다다체 run remains.
+
+2026-08 — the 40% floor shipped without a ceiling, so the revise loop could
+only ratchet dialogue upward: a length shortfall triggers "convert narration
+into dialogue" and no finding asked for the reverse. A measured run reached
+83% dialogue CHARACTERS and still scored 100/100. Added a 65% ceiling, measured
+in characters because dialogue lines are short and a line ratio understates it.
+Korean web fiction is legitimately dialogue-forward — the floor is right — but
+지문 carries action, sensory grounding, interiority, and the impact surface a
+사이다 beat needs. Without it the episode reads as a screenplay.
 
 ## Lint calibration (three false-positive classes found and fixed)
 

@@ -132,6 +132,14 @@ RULE_INFO: dict[str, RuleMeta] = {
     "대사 줄 비중": RuleMeta(
         "대사가 적으면 모바일에서 벽돌처럼 읽히고 체감 속도가 급격히 떨어집니다. 히트작은 대사 비중이 큽니다.",
         "지문 덩어리를 인물 간 짧은 대화로 바꾸세요. 서술로 설명한 내용을 말다툼·흥정으로 주고받게 하면 분량과 비중이 함께 올라갑니다."),
+    "지문 부족(대사 과다)": RuleMeta(
+        "대사만으로는 액션·감각·인물의 속내를 전할 수 없고, 무엇보다 사이다가 터질 자리가 "
+        "없습니다. 웹소설이 대사 비중이 높은 것은 맞지만, 지문이 사라지면 소설이 아니라 "
+        "대본이 됩니다. 분량을 대사로만 채운 원고에서 주로 나타납니다.",
+        "티키타카를 줄이고, 그 자리에 행동·공간·감각 묘사와 짧은 속내를 넣으세요. 특히 "
+        "사이다·반전 비트는 지문으로 받아야 충격이 살아납니다.",
+        '"규정입니다."\n"규정, 규정."\n"제가 정하는 게 아닙니다."\n"그럼 누가 정합니까."',
+        '"규정입니다."\n\n노인은 꾸러미를 도로 품에 넣었다. 손이 떨렸다.\n\n"그럼 누가 정합니까."'),
     "연속 지문 분량(대사 없이)": RuleMeta(
         "대사 없이 이어지는 서술이 길면 '벽돌'이 되어 이탈을 부릅니다.",
         "300자를 넘기 전에 대사나 동작 한 줄로 끊으세요."),
@@ -331,6 +339,16 @@ def lint_prose(text: str, *, target_chars: int = 5200,
         if ratio < 0.40:
             add("대사 줄 비중", "major", int(ratio * 100), "40% 이상",
                 limit_num=40, lower_is_better=False)
+
+        # The floor above had no ceiling, so the revise loop could only ratchet
+        # dialogue UP: a short draft triggers "convert narration into dialogue",
+        # and nothing ever pushed back. One measured run reached 83% dialogue
+        # characters and still scored 100/100 — a screenplay, not an episode.
+        char_ratio = (sum(len(l) for l in dialogue_lines)
+                      / max(1, sum(len(l) for l in lines)))
+        if char_ratio > 0.65:
+            add("지문 부족(대사 과다)", "major", int(char_ratio * 100), "65% 이하",
+                limit_num=65)
 
     # A narration WALL is measured in characters, not lines — a run of short
     # action beats reads fast, while 300+자 of unbroken prose is the brick that

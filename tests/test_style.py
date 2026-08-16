@@ -244,3 +244,45 @@ class TestForbiddenTerms:
     def test_ordinary_words_containing_a_joiner_are_not_shredded(self):
         """The `나` split must not turn 하나 into a stray one-syllable term."""
         assert forbidden_terms_from(hard_rules=["하나 둘 셋 금지"]) == ["하나 둘 셋"]
+
+
+class TestDialogueBalance:
+    """The 대사 줄 비중 floor had no ceiling, so the revise loop could only push
+    dialogue UP: a short draft triggers "convert narration into dialogue" and
+    nothing ever asked for the reverse. A measured run reached 83% dialogue
+    characters and still scored 100/100.
+    """
+
+    @staticmethod
+    def _mostly_dialogue(n=30):
+        return "\n\n".join(['"규정입니다."', '"규정, 규정."',
+                            '"제가 정하는 게 아닙니다."', '"그럼 누가 정합니까."'] * n)
+
+    @staticmethod
+    def _balanced(n=20):
+        return "\n\n".join(['"규정입니다."',
+                            "노인은 꾸러미를 도로 품에 넣었다. 손끝이 떨렸다.",
+                            '"그럼 누가 정합니까."',
+                            "봉출은 단말기 화면을 눌렀다. 표시등이 노랗게 바뀌었다."] * n)
+
+    def test_an_episode_that_is_almost_all_dialogue_is_flagged(self):
+        assert "지문 부족(대사 과다)" in _rules(self._mostly_dialogue())
+
+    def test_a_balanced_episode_is_not_flagged(self):
+        assert "지문 부족(대사 과다)" not in _rules(self._balanced())
+
+    def test_the_floor_and_the_ceiling_cannot_both_fire(self):
+        """They are opposite failures; a text tripping both would mean the
+        thresholds overlap and the reviser would get contradictory orders."""
+        for text in (self._mostly_dialogue(), self._balanced(),
+                     "\n\n".join(["지문만 이어지는 문장이다." * 3] * 30)):
+            fired = _rules(text)
+            assert not {"대사 줄 비중", "지문 부족(대사 과다)"} <= fired
+
+    def test_it_is_measured_in_characters_not_lines(self):
+        """Dialogue lines are short, so a line ratio understates how much of the
+        episode is talk. Long narration + many one-word lines must stay clean."""
+        text = "\n\n".join(['"응."', '"어."',
+                            "봉출은 골목 끝까지 걸었다. 담벼락에 붙은 방이 바람에 떨렸다. "
+                            "그는 종이를 뜯어 주머니에 넣었다."] * 20)
+        assert "지문 부족(대사 과다)" not in _rules(text)

@@ -132,3 +132,22 @@ def test_continuity_findings_are_fed_to_the_reviser_as_fix_instructions():
     revise_draft(llm, _draft(CLEAN), _pack(), target_chars=len(CLEAN),
                  max_iterations=1, extra_findings=_continuity_blocker)
     assert llm.calls == 1                      # a clean draft still got revised...
+
+
+def test_a_short_over_dialogue_draft_is_told_to_add_narration_not_more_dialogue():
+    """The ratchet: every short draft used to be told to convert narration into
+    dialogue, with no finding able to ask for the opposite — which is how one
+    run reached 83% dialogue characters."""
+    from novel_agent.reviser import _fix_instructions
+    from novel_agent.style import Violation
+
+    over = [Violation(rule="지문 부족(대사 과다)", severity="major", count=83,
+                      limit="65% 이하", limit_num=65)]
+    text = _fix_instructions(over, ["분량 미달: 현재 2680자, 목표 5200자"])
+    assert "대사로 채우지 마세요" in text
+    assert "지문 덩어리를 인물 간" not in text     # the old advice must not appear
+
+    under = [Violation(rule="대사 줄 비중", severity="major", count=26,
+                       limit="40% 이상", limit_num=40, lower_is_better=False)]
+    text2 = _fix_instructions(under, ["분량 미달: 현재 2680자, 목표 5200자"])
+    assert "지문 덩어리를 인물 간" in text2       # still given when dialogue IS low
