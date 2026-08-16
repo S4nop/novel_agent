@@ -252,6 +252,10 @@ def plan_episode(
     rhythm: RhythmState,
     foreshadow: ForeshadowLedger,
     summary: Summary,
+    # Convergence pressure from the driver (완결 approach). Merged into the
+    # pacing directive rather than added as a new prompt slot, so an edited
+    # episode_plan.md cannot accidentally drop it.
+    extra_directive: str = "",
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
     arc = next((a for a in arc_map.arcs if a.status == "active"), None)
@@ -273,7 +277,8 @@ def plan_episode(
                 arc_payoff=(arc.payoff if arc else ""),
                 cast=cast,
                 story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
-                pacing_directive=rhythm.pacing_directive(),
+                pacing_directive="\n".join(
+                    x for x in (rhythm.pacing_directive(), extra_directive) if x),
                 # the seed_id must be visible, or the planner has no handle to
                 # declare a payoff with — seeds_to_pay would always come back empty
                 due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
