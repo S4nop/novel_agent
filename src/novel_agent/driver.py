@@ -147,7 +147,8 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
     consecutive_failures = 0
     start = store.latest_episode_number() + 1
 
-    for episode in range(start, cfg.target_episodes + 1):
+    episode = start
+    while episode <= cfg.target_episodes:
         # Budget is checked BEFORE spending, so the cap is a ceiling rather
         # than something noticed after the fact.
         if usage.krw >= cfg.max_krw:
@@ -165,7 +166,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             if consecutive_failures >= cfg.max_consecutive_failures:
                 report.stopped_because = f"연속 실패 {consecutive_failures}회 — 서킷 브레이커"
                 break
-            continue
+            continue        # retry the SAME episode; never leave a hole
 
         blocked = blocks_acceptance(continuity)
         passed = bool(result.passed) and not blocked
@@ -183,15 +184,21 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             craft_findings=len(craft),
             reason="" if passed else _why(result, continuity, blocked)))
 
-        if not passed and consecutive_failures >= cfg.max_consecutive_failures:
-            report.stopped_because = (
-                f"연속 실패 {consecutive_failures}회 — 서킷 브레이커. "
-                "캐논이 망가졌거나 프롬프트 조정이 필요합니다.")
-            break
+        if not passed:
+            # Retry the SAME episode. Advancing would leave a hole in the
+            # serial — a measured live run produced episodes 1 and 3 with no 2
+            # and still declared 완결. A serial with a missing episode cannot
+            # be published, so a failure must never move the cursor forward.
+            if consecutive_failures >= cfg.max_consecutive_failures:
+                report.stopped_because = (
+                    f"{episode}화에서 연속 실패 {consecutive_failures}회 — 서킷 브레이커. "
+                    "캐논이 망가졌거나 프롬프트 조정이 필요합니다.")
+                break
+            continue
 
         # 완결 check runs only after a committed episode: a story cannot end on
         # a draft that was rejected.
-        if passed and episode >= cfg.target_episodes:
+        if episode >= cfg.target_episodes:
             if store.load_foreshadow().completion_ready():
                 report.completed = True
                 report.stopped_because = f"완결 — {episode}화, 미회수 주요 떡밥 0건"
@@ -201,9 +208,10 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
                     f"목표 {cfg.target_episodes}화 도달했으나 미회수 주요 떡밥 {unpaid}건 — "
                     "완결 판정 불가. 회수 화를 더 쓰거나 사람이 확인하세요.")
             break
-    else:
-        if not report.stopped_because:
-            report.stopped_because = f"목표 {cfg.target_episodes}화까지 진행 완료"
+        episode += 1        # only a COMMITTED episode moves the cursor
+
+    if not report.stopped_because:
+        report.stopped_because = f"목표 {cfg.target_episodes}화까지 진행 완료"
 
     report.krw = usage.krw
     return report

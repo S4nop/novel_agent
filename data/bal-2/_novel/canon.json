@@ -1,5 +1,5 @@
 {
-  "version": 0,
+  "version": 2,
   "genre_profile_version": 1,
   "last_modified_by": "llm",
   "characters": {
@@ -39,7 +39,24 @@
       "current_location": "저잣거리 수리 노점",
       "condition": "정상, 약간 피로한 상태",
       "power_level": "초능력이나 도력이 전혀 없음. 옛 개방형 통신·보안 표준 지식과 손재주만 보유.",
-      "known_facts": [],
+      "known_facts": [
+        {
+          "fact": "차돌 자신도 모르는 사이에 이름·생년·출신지·등급 번호가 적힌 신원 기록이 이미 등록되어 있다는 사실이 황 서리의 단말을 통해 드러났다.",
+          "learned_episode": 1
+        },
+        {
+          "fact": "배급 관리 부서의 단말에서 매일 자정~인시 사이 등급을 몰래 두 단계 올렸다가 되돌리는 방식으로 배급량을 조금씩 빼돌려온 사실이 확인됐다.",
+          "learned_episode": 1
+        },
+        {
+          "fact": "관아 접수처에 신고를 시도했으나 접수가 거부되고 대신 도사 사칭 및 소요 선동 혐의로 소환장을 받음",
+          "learned_episode": 3
+        },
+        {
+          "fact": "저잣거리 군중 앞에서 낡은 단말의 로그를 공개해 황 서리의 조작 사실을 폭로함",
+          "learned_episode": 3
+        }
+      ],
       "relationships": {}
     },
     "삼월댁": {
@@ -111,7 +128,12 @@
       "current_location": "저잣거리 순찰로",
       "condition": "정상",
       "power_level": "일반 무관, 특수 능력 없음",
-      "known_facts": [],
+      "known_facts": [
+        {
+          "fact": "황 서리로부터 지시를 받아 차돌에게 도사 인증서를 발급하려 했음이 드러남",
+          "learned_episode": 3
+        }
+      ],
       "relationships": {}
     },
     "황 서리": {
@@ -143,11 +165,50 @@
       "secrets": [
         "차돌을 체제 유지용 상징으로 쓰려는 상부 계획을 알고 있다"
       ],
-      "status": "active",
-      "current_location": "관아 인근",
+      "status": "관아에 소환되어 끌려갔다는 소문이 돎",
+      "current_location": "불명",
       "condition": "정상",
       "power_level": "일반 관리, 특수 능력 없음",
-      "known_facts": [],
+      "known_facts": [
+        {
+          "fact": "차돌의 신상 정보 조작과 배급 등급 조작이 동일한 계정·서명에서 나온 것임이 확인되어 공개적으로 폭로됨",
+          "learned_episode": 3
+        },
+        {
+          "fact": "박비장에게는 도사 인증서를, 정가에게는 봉기 전갈을 각각 다르게 흘려 관아와 언더그라운드 양쪽을 부추긴 사실이 드러남",
+          "learned_episode": 3
+        }
+      ],
+      "relationships": {}
+    },
+    "정가": {
+      "name": "정가",
+      "aliases": [],
+      "is_main_cast": false,
+      "immutable_descriptors": [
+        "소매 속에 접힌 쪽지를 지님",
+        "등롱을 들고 다님",
+        "언더그라운드 세력 측 인물"
+      ],
+      "voice": {
+        "speech_register": "",
+        "honorific_pattern": "",
+        "speech_tics": [],
+        "exemplar_lines": []
+      },
+      "personality": "",
+      "goals": [],
+      "secrets": [],
+      "status": "active",
+      "current_location": "",
+      "condition": "",
+      "power_level": "",
+      "known_facts": [
+        {
+          "fact": "황 서리로부터 지시를 받아 차돌을 봉기의 상징으로 세우려 했음이 드러남",
+          "learned_episode": 3
+        }
+      ],
       "relationships": {}
     }
   },
@@ -183,6 +244,10 @@
     {
       "text": "관아는 민심 관리를 위해 도사에 대한 소문을 방치하거나 이용하기도 한다.",
       "hard": false
+    },
+    {
+      "text": "칩의 등급은 출입 구역·발언권뿐 아니라 배급량도 결정한다.",
+      "hard": true
     }
   ],
   "glossary": [
@@ -200,6 +265,16 @@
       "term": "봉쇄 구역",
       "canonical_form": "봉쇄 구역",
       "notes": "고등급 칩 소지자만 출입 가능한 구역을 가리키는 일반명사로 고정 표기한다."
+    },
+    {
+      "term": "출입패",
+      "canonical_form": "출입패",
+      "notes": ""
+    },
+    {
+      "term": "신호 증폭 칩",
+      "canonical_form": "신호 증폭 칩",
+      "notes": ""
     }
   ]
 }

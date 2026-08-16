@@ -203,3 +203,44 @@ def test_the_report_always_says_why_it_stopped(tmp_path):
                 _cfg(target_episodes=5, max_consecutive_failures=1)):
         r = run_serial(FakeLLM(prose=CLEAN), _store(tmp_path / str(id(cfg))), config=cfg)
         assert r.stopped_because, "a run must never stop without a reason"
+
+
+def test_a_failed_episode_is_retried_and_never_leaves_a_hole(tmp_path):
+    """Measured on a live run: episode 2 failed the style gate, the driver moved
+    on, and the store ended up with episodes 1 and 3 — then declared 완결. A
+    serial with a missing episode cannot be published, so a failure must never
+    advance the cursor."""
+    s = _store(tmp_path)
+
+    class FailsOnce(FakeLLM):
+        seen = 0
+        def text(self, messages, *, max_tokens=8192):
+            FailsOnce.seen += 1
+            # fail the 2nd episode's first draft, then recover
+            return DIRTY if FailsOnce.seen == 3 else CLEAN
+
+    r = run_serial(FailsOnce(), s, config=_cfg(target_episodes=3,
+                                               max_consecutive_failures=3))
+    committed = sorted(o.episode for o in r.outcomes if o.committed)
+    assert committed == [1, 2, 3], f"gap in the serial: {committed}"
+    assert s.load_episode(2) is not None
+
+
+def test_the_breaker_names_the_episode_it_gave_up_on(tmp_path):
+    """Retrying forever on one bad episode is the failure mode the breaker
+    exists for — and the operator needs to know WHICH episode."""
+    s = _store(tmp_path)
+    r = run_serial(FakeLLM(prose=DIRTY), s,
+                   config=_cfg(target_episodes=5, max_consecutive_failures=2))
+    assert all(o.episode == 1 for o in r.outcomes)     # retried ep1, never advanced
+    assert "1화에서 연속 실패" in r.stopped_because
+    assert s.latest_episode_number() == 0
+
+
+def test_완결_cannot_be_declared_with_a_missing_episode(tmp_path):
+    """The live run declared 완결 while holding only episodes 1 and 3."""
+    s = _store(tmp_path)
+    r = run_serial(FakeLLM(prose=DIRTY), s,
+                   config=_cfg(target_episodes=3, max_consecutive_failures=2))
+    assert r.completed is False
+    assert r.committed_episodes == 0
