@@ -48,13 +48,17 @@ class Answer(BaseModel):
 # Decisions the agent otherwise silently guesses — and got wrong at least once.
 # Genre-agnostic by construction: no topic names a specific work or setting
 # (invariant #1 — genre lives in GenreProfile as data, never hardcoded).
+# Genre-agnostic BY CONSTRUCTION (invariant #1): not one topic may name a genre,
+# a trope, or a work. An earlier version listed "코미디 톤", "원작·기존 IP" and
+# "주인공의 가장 두드러진 설정" — all three were artifacts of one test idea
+# ("네오 조선의 흑인 홍길동, 코믹"), and they forced every interview toward
+# comedy and adaptation. A 무협 복수극 was asked where its comedy sat.
 REQUIRED_TOPICS = [
-    "코미디 톤 (건조한 풍자 / 소동극 / 시트콤 중 어디쯤인가)",
+    "작품의 톤 — 이 아이디어를 어떤 태도로 다룰 것인가 (아이디어에 맞는 선택지로)",
     "세계관 밀도 — 새 설정을 몇 개까지 허용하는가 (취향, 객관식)",
     "절대 금지 설정 — 이 세계에 '없어야 하는' 것 (하드 룰, 자유 서술)",
-    "기술 수준 — 어디까지가 이 작품의 상식인가",
-    "원작·기존 IP를 차용한다면 어디까지 살릴 것인가 (해당 없으면 생략)",
-    "주인공의 가장 두드러진 설정을 서사에서 어떻게 다룰 것인가 (소재 / 배경 / 플롯 핵심)",
+    "이 세계의 상식 수준 — 무엇이 당연하고 무엇이 놀라운 일인가",
+    "주인공이 처한 출발 지점 — 무엇을 원하고 무엇이 막고 있는가",
     "갈등의 규모 (개인적 다툼 / 조직·집단 / 세계 단위)",
     "독자 대상과 등급",
 ]
@@ -91,23 +95,45 @@ def render_question(q: InterviewQuestion, index: int, total: int) -> str:
     return "\n".join(lines)
 
 
+# An author with no opinion must be able to say so. Silently substituting the
+# model's default and then labelling it "작가가 정한 방향" manufactures authorial
+# intent: a 무협 복수극 run answered nothing and still carried
+# "코미디 톤: 건조한 풍자" into every downstream prompt.
+SKIPPED = "\x00skip"
+_SKIP_TOKENS = {"-", "skip", "s", "건너뛰기", "패스", "없음", "무관"}
+
+
 def resolve_answer(q: InterviewQuestion, raw: str) -> str:
-    """Accept a number (option pick), free text, or empty (use the default)."""
+    """Option pick, free text, explicit default, or SKIPPED.
+
+    Empty input means SKIP, not "use the default" — not answering is the
+    author's most common state and it must not become a recorded preference.
+    To take the suggested value they type it or pick its number.
+    """
     raw = (raw or "").strip()
-    if not raw:
-        return q.default
+    if not raw or raw.lower() in _SKIP_TOKENS:
+        return SKIPPED
     if raw.isdigit() and 1 <= int(raw) <= len(q.options):
         return q.options[int(raw) - 1]
     return raw
 
 
+def was_answered(a: "Answer") -> bool:
+    return a.answer != SKIPPED and bool(a.answer.strip())
+
+
+def _answered(answers: list[Answer]) -> list[Answer]:
+    return [a for a in answers if was_answered(a)]
+
+
 def hard_rules(answers: list[Answer]) -> list[str]:
-    """Only the non-negotiable answers, verbatim."""
-    return [a.answer.strip() for a in answers if a.hard_rule and a.answer.strip()]
+    """Only the non-negotiable answers the author actually gave, verbatim."""
+    return [a.answer.strip() for a in _answered(answers) if a.hard_rule]
 
 
 def preferences(answers: list[Answer]) -> list[Answer]:
-    return [a for a in answers if not a.hard_rule]
+    """Skipped questions are not preferences — omitting them is the point."""
+    return [a for a in _answered(answers) if not a.hard_rule]
 
 
 def enrich_idea(idea: str, answers: list[Answer]) -> str:
@@ -118,8 +144,8 @@ def enrich_idea(idea: str, answers: list[Answer]) -> str:
     answers were negotiable — and the density question's option text carried a
     forbidden-setting clause inside it.
     """
-    if not answers:
-        return idea
+    if not _answered(answers):
+        return idea        # nothing the author actually chose
     parts = [idea]
     hard = hard_rules(answers)
     if hard:

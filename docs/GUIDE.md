@@ -162,7 +162,7 @@ here, nothing else will work — check §8.
 ### 1 · 아이디어
 Type one line — a premise, a vibe, a mashup. Genuinely one line is enough:
 
-> `네오 조선의 흑인 홍길동, 코믹`
+> `평범한 회사원이 하루아침에 길드 감사관이 된다`
 
 Press **프로젝트 생성**. State persists to `data/projects/<id>/`, so you can close the
 browser and come back.

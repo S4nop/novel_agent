@@ -48,9 +48,18 @@ def test_numeric_input_selects_the_listed_option():
     assert resolve_answer(_q(), "2") == "해킹 없음"
 
 
-def test_empty_or_whitespace_input_falls_back_to_default():
-    assert resolve_answer(_q(), "") == "새 기술 개념은 1개만"
-    assert resolve_answer(_q(), "   ") == "새 기술 개념은 1개만"
+def test_empty_or_whitespace_input_skips_instead_of_defaulting():
+    """This test previously asserted the opposite, and in doing so encoded the
+    bug: pressing enter substituted the model's default, which enrich_idea then
+    labelled 작가가 정한 방향. A 무협 복수극 ended up carrying a comedy tone the
+    author never chose."""
+    from novel_agent.interview import SKIPPED
+
+    q = InterviewQuestion(topic="t", question="q", why_it_matters="w",
+                          options=["A", "B"], default="A")
+    assert resolve_answer(q, "") == SKIPPED
+    assert resolve_answer(q, "   ") == SKIPPED
+
 
 
 def test_free_text_answer_is_kept_verbatim():
@@ -141,3 +150,68 @@ def test_required_topics_are_genre_agnostic():
     leaked = ["홍길동", "조선", "헌터", "회귀", "사이버펑크", "이방인"]
     for topic in REQUIRED_TOPICS:
         assert not any(w in topic for w in leaked), f"genre leak in: {topic}"
+
+
+# ── genre leakage (coworker review 3) ────────────────────────────────────────
+def test_required_topics_name_no_genre_trope_or_work():
+    """Invariant #1: genre is runtime data. An earlier version forced "코미디 톤",
+    "원작·기존 IP" and "주인공의 가장 두드러진 설정" into every interview — all
+    three artifacts of one test idea, which is why unrelated ideas kept being
+    asked about 홍길동/서자 and comedy."""
+    from novel_agent.interview import REQUIRED_TOPICS
+
+    banned = ["코미디", "무협", "로판", "판타지", "회귀", "환생", "원작", "IP",
+              "홍길동", "서자", "사극", "조선", "기술 수준"]
+    joined = " ".join(REQUIRED_TOPICS)
+    for word in banned:
+        assert word not in joined, f"genre leak in REQUIRED_TOPICS: {word!r}"
+
+
+def test_required_topics_stay_about_decisions_the_author_must_make():
+    from novel_agent.interview import REQUIRED_TOPICS
+    joined = " ".join(REQUIRED_TOPICS)
+    for essential in ("절대 금지", "밀도", "톤", "등급"):
+        assert essential in joined
+
+
+# ── skipping (coworker review 1) ─────────────────────────────────────────────
+class TestSkip:
+    """An author with no opinion must be able to say so. Substituting the
+    model's default and labelling it 작가가 정한 방향 manufactures intent."""
+
+    @staticmethod
+    def _q(topic="작품의 톤"):
+        return InterviewQuestion(topic=topic, question="q", why_it_matters="w",
+                                 options=["A", "B"], default="A")
+
+    def test_empty_input_skips_rather_than_taking_the_default(self):
+        from novel_agent.interview import SKIPPED
+        assert resolve_answer(self._q(), "") == SKIPPED
+
+    def test_explicit_skip_tokens_are_accepted(self):
+        from novel_agent.interview import SKIPPED
+        for token in ("-", "skip", "건너뛰기", "없음"):
+            assert resolve_answer(self._q(), token) == SKIPPED, token
+
+    def test_a_skipped_answer_never_becomes_authorial_intent(self):
+        """The reported failure: a 무협 복수극 carried "코미디 톤: 건조한 풍자"
+        into every downstream prompt without the author choosing it."""
+        from novel_agent.interview import SKIPPED
+        a = Answer(topic="작품의 톤", question="q", answer=SKIPPED)
+        assert enrich_idea("무협 복수극", [a]) == "무협 복수극"
+
+    def test_a_skipped_hard_rule_is_not_treated_as_a_prohibition(self):
+        from novel_agent.interview import SKIPPED, hard_rules
+        a = Answer(topic="절대 금지", question="q", answer=SKIPPED, hard_rule=True)
+        assert hard_rules([a]) == []
+
+    def test_the_author_can_still_take_the_suggested_value(self):
+        assert resolve_answer(self._q(), "1") == "A"
+        assert resolve_answer(self._q(), "직접 쓴 답") == "직접 쓴 답"
+
+    def test_skipped_and_answered_questions_coexist(self):
+        from novel_agent.interview import SKIPPED
+        out = enrich_idea("아이디어", [
+            Answer(topic="톤", question="q", answer=SKIPPED),
+            Answer(topic="절대 금지", question="q", answer="회귀", hard_rule=True)])
+        assert "회귀" in out and "톤" not in out

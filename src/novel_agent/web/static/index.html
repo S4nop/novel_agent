@@ -63,7 +63,7 @@
     <div class="panel">
       <h2>1 · 아이디어</h2>
       <div class="steps" id="steps"></div>
-      <textarea id="idea" rows="2" placeholder="예) 네오 조선의 흑인 홍길동, 코믹"></textarea>
+      <textarea id="idea" rows="2" placeholder="예) 평범한 회사원이 하루아침에 길드 감사관이 된다"></textarea>
       <div class="row" style="margin-top:8px">
         <button onclick="createProject()">프로젝트 생성</button>
         <select id="projects" onchange="loadProject(this.value)" style="flex:1"></select>
@@ -219,7 +219,8 @@ function renderQuestions(){
     <div class="q"><div class="t">${i+1}. ${esc(q.topic)}</div>
       <div>${esc(q.question)}</div><div class="why">${esc(q.why_it_matters)}</div>
       ${q.options.map(o=>`<label class="opt"><input type="radio" name="q${i}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}
-      <label class="opt"><input type="radio" name="q${i}" value="__d" checked> 기본값: ${esc(q.default)}</label>
+      <label class="opt"><input type="radio" name="q${i}" value="__skip" checked> 건너뛰기 — 모델이 알아서 정함 (기록되지 않음)</label>
+      <label class="opt"><input type="radio" name="q${i}" value="__d"> 제안값 채택: ${esc(q.default)}</label>
       <input placeholder="직접 입력(선택)" data-free="${i}" style="margin-top:6px">
     </div>`).join('');
   $('#bAns').style.display=''; $('#bAns').disabled=false;
@@ -228,7 +229,14 @@ async function saveAnswers(){
   const answers = QUESTIONS.map((q,i)=>{
     const free = document.querySelector(`[data-free="${i}"]`).value.trim();
     const sel = document.querySelector(`input[name="q${i}"]:checked`);
-    let a = free || (sel && sel.value!=='__d' ? sel.value : q.default);
+    // Skip is the DEFAULT selection, and it is not the same as taking the
+    // suggested value: an unanswered question must not be recorded as the
+    // author's choice. The server drops answers marked SKIPPED.
+    const picked = sel ? sel.value : '__skip';
+    let a = free ? free
+          : picked === '__skip' ? '\u0000skip'
+          : picked === '__d' ? q.default
+          : picked;
     // hard_rule must ride along: dropping it demotes an absolute prohibition
     // ("이 세계에 암호화폐는 없다") to a soft preference the model may override.
     return {topic:q.topic, question:q.question, answer:a, hard_rule:!!q.hard_rule};

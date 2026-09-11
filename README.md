@@ -71,7 +71,7 @@ can inspect and retry a stage without re-spending tokens on the earlier ones:
 
 ```bash
 # full setup + episode 1, replaying saved interview answers
-python scripts/run_setup.py --idea "네오 조선의 흑인 홍길동, 코믹" \
+python scripts/run_setup.py --idea "평범한 회사원이 하루아침에 길드 감사관이 된다" \
     --answers data/answers.json --pick 2 --draft --out data/final
 
 # interactive interview instead of a file

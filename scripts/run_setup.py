@@ -1,6 +1,6 @@
 """Run the setup chain from a user's freeform idea, then draft episode 1.
 
-    python scripts/run_setup.py --idea "네오 조선의 흑인 홍길동, 코믹" [--pick 1] [--draft]
+    python scripts/run_setup.py --idea "평범한 회사원이 하루아침에 길드 감사관이 된다" [--pick 1] [--draft]
 
 Everything creative is DERIVED from the idea by the agent — the developer
 hand-authors nothing. Candidates for the premise gate are all printed; the
@@ -75,7 +75,9 @@ def main() -> None:
             print(f"    · {x.topic}: {x.answer[:70]}")
     elif a.interview:
         qs = generate_interview_questions(llm, a.idea, max_questions=a.questions)
-        print(f"\n■ 설정 인터뷰 — {len(qs)}개 질문 (번호 입력 / 직접 입력 / 엔터=기본값)")
+        print(f"\n■ 설정 인터뷰 — {len(qs)}개 질문")
+        print("   번호 입력 = 선택 · 직접 입력 = 자유 서술 · 엔터 또는 '-' = 건너뛰기")
+        print("   건너뛴 질문은 기록되지 않습니다(모델이 알아서 정합니다).")
         answers: list[Answer] = []
         for i, q in enumerate(qs, 1):
             print(render_question(q, i, len(qs)))
@@ -87,7 +89,8 @@ def main() -> None:
             ans = resolve_answer(q, raw)
             answers.append(Answer(topic=q.topic, question=q.question, answer=ans,
                                   hard_rule=q.hard_rule))
-            print(f"  → {ans}")
+            from novel_agent.interview import SKIPPED
+            print("  → (건너뜀)" if ans == SKIPPED else f"  → {ans}")
         interview_answers = answers
         idea = enrich_idea(a.idea, answers)
         (out).mkdir(parents=True, exist_ok=True)
@@ -137,6 +140,13 @@ def main() -> None:
 
     store = CanonStore(out / "_novel")
     store.initialize(genre_profile=profile, north_star=north_star, canon=canon, voice_bible=voice)
+    # Canon is the source of truth for every later episode, so the author has to
+    # be able to correct it. The console has an editor; on the CLI the file is
+    # the editor — but nothing said so, so nobody knew (coworker review 2).
+    print(f"\n■ 캐논 파일: {out/'_novel'/'canon.json'}")
+    print("   → 이름·외형·말투·용어가 마음에 안 들면 이 파일을 직접 고치세요.")
+    print("   → --draft 없이 실행했다면 지금 고치고 scripts/run_serial.py 로 집필하세요.")
+    print("   → 웹 콘솔(python -m novel_agent.web)에는 캐논 편집 화면이 있습니다.")
 
     # 4) EpisodePlanner
     beats = plan_episode(
