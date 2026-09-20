@@ -409,7 +409,9 @@ def episode(pid: str, body: DraftIn):
                                   # get FIXED, not merely reported at the end
                                   extra_findings=lambda d: deterministic_findings(
                                       d, beats, canon),
-                                  structural_findings=structural)
+                                  structural_findings=structural,
+                                  structural_recheck=lambda d:
+                                      judge_opening_and_ending(llm, d))
             draft = result.draft
 
         # Track A, full pass — one judge call on the final draft. The drafter
@@ -418,8 +420,12 @@ def episode(pid: str, body: DraftIn):
         # accumulating canon damage.
         continuity = check_continuity(llm, draft, beats, canon)
         # Track B — advisory, never gates (DESIGN §3)
+        # The structural half must be the verdict on the prose the author is
+        # about to read — result.structural when a rewrite happened, otherwise
+        # the original judgement still describes it.
         craft = list(judge_craft(llm, draft, profile, canon,
-                                 store.load_voice_bible())) + list(structural)
+                                 store.load_voice_bible())) + list(
+            result.structural if result else structural)
 
         # The prose file is always written — the author must be able to read a
         # rejected draft. Canon is a different matter.

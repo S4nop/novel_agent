@@ -9,7 +9,7 @@ the revise target is objective rather than vibes.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .artifacts import Draft
 from .context_pack import ContextPack
@@ -30,6 +30,9 @@ class RevisionResult:
     iterations: int
     passed: bool
     remaining: list[Violation]
+    # The hook/절단 verdict on THIS draft — callers report it to the author, so
+    # it must not be the stale one judged before the rewrite.
+    structural: list[Violation] = field(default_factory=list)
 
 
 def length_findings(draft: Draft, target: int) -> list[str]:
@@ -104,8 +107,7 @@ def _balance_findings(draft: Draft, target: int,
 
 def _fitness(draft: Draft, target: int,
              forbidden_terms: list[str] | None = None,
-             extra_findings=None,
-             structural: list[Violation] | None = None) -> tuple[int, int, int]:
+             extra_findings=None) -> tuple[int, int, int]:
     """Ranking key for keep-best, most significant criterion first.
 
     Continuity outranks everything: a canon break is a hard gate failure, so a
@@ -122,8 +124,12 @@ def _fitness(draft: Draft, target: int,
     # this tier, not inside the style score: length compliance is worth a whole
     # tier, so any style-level penalty loses to it and the loop learns to hit
     # 분량 by piling on dialogue — measured at 66-83% before this.
+    # Structural findings judged outside the loop are deliberately NOT part of
+    # this key: they are the same list for every candidate, so including them
+    # pinned the balance term to 0 and keep-best went blind to dialogue padding
+    # on exactly the episodes that already had a hook or 절단 problem.
     gates = ((0 if length_findings(draft, target) else 1)
-             + (0 if _balance_findings(draft, target, forbidden_terms, structural) else 1))
+             + (0 if _balance_findings(draft, target, forbidden_terms) else 1))
     return (-blockers, gates,
             style_score(draft.prose, target_chars=target,
                         forbidden_terms=forbidden_terms))
@@ -146,12 +152,14 @@ def revise_draft(
     # Structural findings judged once on the incoming draft (hook / 절단).
     # Not recomputed per iteration: that would cost an LLM call each pass.
     structural_findings: list[Violation] | None = None,
+    # Re-judges those two edges on the WINNING draft. The frozen list above is
+    # what the reviser is told to fix; this is what the gate is told to believe.
+    structural_recheck=None,
     max_tokens: int = 32768,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
     best = draft
-    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings,
-                        structural_findings)
+    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings)
     iterations = 0
 
     for _ in range(max_iterations):
@@ -184,8 +192,7 @@ def revise_draft(
             fact_requests=requests or draft.fact_requests,
         )
         # keep-best: an edit that makes things worse is discarded
-        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings,
-                       structural_findings)
+        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings)
         if fit > best_fit or (
             fit == best_fit
             and abs(candidate.char_count - target_chars) < abs(best.char_count - target_chars)
@@ -198,15 +205,23 @@ def revise_draft(
                            forbidden_terms=forbidden_terms)
     if extra_findings is not None:
         remaining = remaining + list(extra_findings(best))
-    if structural_findings:
-        remaining = remaining + list(structural_findings)
+    # The incoming findings describe the FIRST draft. Re-judge the winner, or
+    # the verdict is independent of the rewrite: one hook finding on the first
+    # draft made the episode unpassable however good the revision, burning every
+    # revise pass and the retries after it until the breaker tripped. Measured:
+    # 24 calls and 0 committed episodes where a clean run took 12 and committed 2.
+    # Skipped when the prose is byte-identical to what the judge already read.
+    final_structural = list(structural_findings or [])
+    if final_structural and structural_recheck is not None and best.prose != draft.prose:
+        final_structural = list(structural_recheck(best))
+    remaining = remaining + final_structural
     # A continuity blocker is a HARD gate — it cannot be style-scored away.
     passed = (best_score >= PASS_SCORE
               and not length_findings(best, target_chars)
               and not _balance_findings(best, target_chars, forbidden_terms,
-                                        structural_findings)
+                                        final_structural)
               and not any(v.severity == "blocker" for v in remaining))
     return RevisionResult(
         draft=best, score=best_score, iterations=iterations,
-        passed=passed, remaining=remaining,
+        passed=passed, remaining=remaining, structural=final_structural,
     )

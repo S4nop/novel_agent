@@ -132,13 +132,17 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         max_iterations=cfg.revise_iterations, forbidden_terms=cfg.forbidden_terms,
         extra_findings=lambda d: deterministic_findings(d, beats, canon),
         structural_findings=structural,
+        # ...and re-judged on the winner, so a repaired hook actually clears.
+        structural_recheck=lambda d: judge_opening_and_ending(llm, d),
     )
     continuity = check_continuity(llm, result.draft, beats, canon)
     # Track B is ADVISORY: it reports craft problems for the author and the
     # reviser but never gates, because a subjective judge with blocking power
     # halts an unattended run on an opinion.
     craft = judge_craft(llm, result.draft, profile, canon, store.load_voice_bible())
-    return beats, result, continuity, list(craft) + list(structural)
+    # Track B only. The structural verdict reaches the author through
+    # result.remaining, and it is the one judged on the final prose.
+    return beats, result, continuity, list(craft)
 
 
 def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,

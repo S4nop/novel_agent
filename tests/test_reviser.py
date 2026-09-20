@@ -203,3 +203,96 @@ def test_an_evidence_bearing_finding_carries_its_method_too():
                   evidence="정말, 너무")
     text = _fix_instructions([v], [])
     assert "정말, 너무" in text and "부사를 지우고" in text
+
+
+# ---------------------------------------------------------------- 구조 판정 갱신
+# The hook/절단 judge runs once on the PRE-revision draft so the reviser has
+# something to fix. That same frozen list used to decide the gate too, which
+# made the verdict independent of the rewrite: one finding on the first draft
+# and the episode could never pass, however good the revision was.
+
+LONGER = CLEAN + "\n" + CLEAN      # what a rewrite that fixed the shortfall returns
+
+
+def _hook_finding():
+    from novel_agent.craft import RULE_HOOK
+    from novel_agent.style import Violation
+
+    return Violation(rule=RULE_HOOK, severity="major", count=1, limit="0건",
+                     limit_num=0, evidence="배경 묘사로 시작한다 — 근거: '청사 앞마당은…'")
+
+
+def test_the_gate_passes_when_the_rewrite_repairs_the_weak_opening():
+    result = revise_draft(SequenceLLM(LONGER), _draft(CLEAN), _pack(),
+                          target_chars=len(LONGER), max_iterations=1,
+                          structural_findings=[_hook_finding()],
+                          structural_recheck=lambda d: [])
+    assert result.draft.prose == LONGER
+    assert result.passed is True
+    assert [v.rule for v in result.remaining] == []
+
+
+def test_the_gate_still_fails_when_the_rewrite_leaves_the_opening_weak():
+    from novel_agent.craft import RULE_HOOK
+
+    hook = _hook_finding()
+    result = revise_draft(SequenceLLM(LONGER), _draft(CLEAN), _pack(),
+                          target_chars=len(LONGER), max_iterations=1,
+                          structural_findings=[hook],
+                          structural_recheck=lambda d: [hook])
+    assert result.passed is False
+    assert any(v.rule == RULE_HOOK for v in result.remaining)
+
+
+def test_the_author_sees_the_verdict_on_the_final_prose_not_the_first_draft():
+    """The findings list is the author's only account of why an episode was
+    rejected. Reporting the pre-revision complaint against post-revision prose
+    sends them looking for a fault that is no longer there."""
+    from novel_agent.craft import RULE_CLIFFHANGER
+    from novel_agent.style import Violation
+
+    fresh = Violation(rule=RULE_CLIFFHANGER, severity="major", count=1,
+                      limit="0건", limit_num=0, evidence="사건이 해결된 뒤 끊는다")
+    result = revise_draft(SequenceLLM(LONGER), _draft(CLEAN), _pack(),
+                          target_chars=len(LONGER), max_iterations=1,
+                          structural_findings=[_hook_finding()],
+                          structural_recheck=lambda d: [fresh])
+    assert [v.rule for v in result.remaining] == [RULE_CLIFFHANGER]
+
+
+def test_no_re_judge_call_is_spent_when_the_first_draft_drew_no_structural_finding():
+    """The recheck costs an LLM call, so it may only run when a structural
+    finding is open that the rewrite could have cleared."""
+    seen = []
+    result = revise_draft(SequenceLLM(), _draft(CLEAN), _pack(),
+                          target_chars=len(CLEAN),
+                          structural_recheck=lambda d: seen.append(d) or [])
+    assert seen == []
+    assert result.passed is True
+
+
+def test_no_re_judge_call_is_spent_when_the_rewrite_changed_nothing():
+    """Every candidate was discarded, so the winner is the prose the judge
+    already read — its verdict still stands and a second call buys nothing."""
+    seen = []
+    revise_draft(SequenceLLM(DIRTY), _draft(CLEAN), _pack(),
+                 target_chars=len(CLEAN), max_iterations=1,
+                 structural_findings=[_hook_finding()],
+                 structural_recheck=lambda d: seen.append(d) or [])
+    assert seen == []
+
+
+def test_keep_best_still_rejects_a_dialogue_padded_rewrite_while_a_hook_is_open():
+    """A frozen structural finding made the balance term of the ranking key
+    constant, so keep-best went blind to dialogue padding for exactly the
+    episodes that were already in trouble."""
+    balanced = "\n\n".join(
+        ['"규정입니다."', "노인은 꾸러미를 도로 품에 넣었다. 손끝이 떨렸다.",
+         '"그럼 누가 정합니까."', "봉출은 단말기를 눌렀다. 표시등이 노랗게 바뀌었다."] * 30)
+    padded = "\n\n".join(
+        ['"규정입니다."', '"규정, 규정."', '"제가 정하는 게 아닙니다."',
+         '"그럼 누가 정합니까."'] * 96)
+    result = revise_draft(SequenceLLM(padded), _draft(balanced), _pack(),
+                          target_chars=5200, max_iterations=1,
+                          structural_findings=[_hook_finding()])
+    assert result.draft.prose == balanced
