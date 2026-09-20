@@ -244,3 +244,24 @@ def test_a_blocked_episode_must_not_be_committed_to_canon():
     clean = deterministic_findings(_draft("케이타가 걸었다."), _beats(), Canon())
     assert (not blocks_acceptance(clean) and True) is True   # clean prose commits
 
+
+
+def test_an_annotated_canonical_form_does_not_fire_on_every_episode():
+    """Measured on a live run: canon_init returned
+    canonical_form='차대성 (관내 호칭: 차 서기)' — a gloss, not a spelling — so the
+    drift rule fired on the protagonist's own name in EVERY episode and no prose
+    could ever satisfy it. A check that misfires every time trains the author to
+    ignore the gate."""
+    canon = Canon(glossary=[GlossaryEntry(
+        term="차대성", canonical_form="차대성 (관내 호칭: 차 서기)")])
+    vs = deterministic_findings(_draft("차대성은 서류를 넘겼다."), _beats(), canon)
+    assert RULE_GLOSSARY_DRIFT not in rules(vs)
+
+
+def test_real_drift_is_still_caught_when_the_canonical_form_is_annotated():
+    """Stripping the gloss must not disable the rule."""
+    canon = Canon(glossary=[GlossaryEntry(
+        term="천유결계", canonical_form="天流結界 (고대 표기)")])
+    vs = deterministic_findings(_draft("천유결계가 흔들렸다."), _beats(), canon)
+    v = next(x for x in vs if x.rule == RULE_GLOSSARY_DRIFT)
+    assert "天流結界" in v.evidence and "(" not in v.evidence

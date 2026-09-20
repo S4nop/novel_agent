@@ -25,6 +25,8 @@ vocabulary across tracks rather than a parallel one (invariant #4).
 """
 from __future__ import annotations
 
+import re
+
 from .artifacts import BeatSheet, Canon, Draft
 from .llm import LLM
 from .prompts import render
@@ -39,6 +41,15 @@ RULE_RETIRED_ACTOR = "캐논 위반: 퇴장한 인물 등장"
 RULE_GLOSSARY_DRIFT = "캐논 위반: 용어 표기 흔들림"
 RULE_PLANNED_ABSENT = "계획 이탈: 예정 인물 부재"
 RULE_CANON_CONTRADICTION = "캐논 위반: 사실 모순"
+
+
+# A canonical_form is the exact string to write. Models keep returning it with a
+# parenthetical gloss — "차대성 (관내 호칭: 차 서기)" — which no prose can ever
+# match, so the rule fired on the protagonist's own name in every episode. A
+# check that misfires every time trains the author to ignore the gate, so the
+# annotation is stripped rather than trusted.
+def _canonical_spelling(canonical_form: str) -> str:
+    return re.sub(r"\s*[(（].*", "", canonical_form or "").strip()
 
 
 def _mentions(prose: str, card_name: str, aliases: list[str]) -> str | None:
@@ -70,12 +81,13 @@ def deterministic_findings(draft: Draft, beats: BeatSheet, canon: Canon) -> list
     # 2) glossary drift: the term is used, but not in its canonical spelling.
     #    Reader-visible inconsistency and the classic long-serial rot.
     for g in canon.glossary:
-        if g.term and g.canonical_form and g.term != g.canonical_form:
-            if g.term in prose and g.canonical_form not in prose:
+        spelling = _canonical_spelling(g.canonical_form)
+        if g.term and spelling and g.term != spelling:
+            if g.term in prose and spelling not in prose:
                 out.append(Violation(
                     rule=RULE_GLOSSARY_DRIFT, severity="major", count=prose.count(g.term),
                     limit="0회", limit_num=0,
-                    evidence=f"'{g.term}' → 정본 표기 '{g.canonical_form}'"))
+                    evidence=f"'{g.term}' → 정본 표기 '{spelling}'"))
 
     # 3) the plan said this entity would appear and it did not. A reconciliation
     #    signal for the re-planner, not necessarily an error — hence minor.
