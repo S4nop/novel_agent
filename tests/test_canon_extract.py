@@ -6,7 +6,6 @@ conservative: a wrong canon fact propagates into every later episode's
 ContextPack and no read path would ever catch it, so dropping the unverifiable
 is the correct bias.
 """
-import pytest
 
 from novel_agent.artifacts import (
     Canon,

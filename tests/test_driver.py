@@ -4,9 +4,7 @@ Every test here is about a STOPPING condition. An unattended run that cannot
 say why it stopped is the failure mode that costs money and canon, so the
 reason is asserted as a value, never inferred.
 """
-import pytest
 
-from novel_agent.artifacts import PlannedSeed, SeedMagnitude
 from novel_agent.canon_store import CanonStore
 from novel_agent.driver import RunConfig, convergence_directive, run_serial
 from novel_agent.llm import LLMRefusal, Usage
@@ -137,7 +135,7 @@ def test_the_budget_ceiling_stops_the_run_before_spending_more(tmp_path):
 
 def test_the_budget_is_checked_before_each_episode_not_only_at_the_start(tmp_path):
     s = _store(tmp_path)
-    llm = FakeLLM()
+
 
     class Metered(FakeLLM):
         def text(self, messages, *, max_tokens=8192):
@@ -197,7 +195,6 @@ def test_the_breaker_resets_after_a_passing_episode(tmp_path):
 
 # ── reporting ────────────────────────────────────────────────────────────────
 def test_the_report_always_says_why_it_stopped(tmp_path):
-    s = _store(tmp_path)
     for cfg in (_cfg(target_episodes=1),
                 _cfg(target_episodes=5, max_krw=1),
                 _cfg(target_episodes=5, max_consecutive_failures=1)):

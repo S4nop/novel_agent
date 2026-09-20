@@ -46,7 +46,7 @@ def main() -> None:
 
     if a.reset:
         store.reset_serial()
-        print(f"■ 연재 초기화: 셋업(전제·캐논·보이스)은 유지, 누적분은 되감음")
+        print("■ 연재 초기화: 셋업(전제·캐논·보이스)은 유지, 누적분은 되감음")
 
     forbidden: list[str] = []
     if a.answers:

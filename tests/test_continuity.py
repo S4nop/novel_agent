@@ -8,7 +8,6 @@ checked by something other than the writer.
 The deterministic rules are tested exhaustively because they are the half that
 must hold when the judge call is flaky, rate-limited, or refused.
 """
-import pytest
 
 from novel_agent.artifacts import (
     Beat,
