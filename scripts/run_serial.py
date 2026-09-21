@@ -45,8 +45,13 @@ def main() -> None:
         raise SystemExit(f"{run} has no locked canon — run scripts/run_setup.py first")
 
     if a.reset:
-        store.reset_serial()
-        print("■ 연재 초기화: 셋업(전제·캐논·보이스)은 유지, 누적분은 되감음")
+        if store.reset_serial():
+            print("■ 연재 초기화: 셋업(전제·캐논·보이스)은 유지, 누적분은 되감음")
+        else:
+            print("■ 연재 부분 초기화 — 이 저장소에는 초기 캐논 스냅샷이 없습니다.")
+            print("   에피소드·원장·요약은 되감았지만, 집필 중 추출된 인물·규칙·용어는")
+            print("   작가가 넣은 것과 구분할 수 없어 캐논에 남아 있습니다. 확인하세요:")
+            print(f"   {run/'_novel'/'canon.json'}")
 
     forbidden: list[str] = []
     if a.answers:

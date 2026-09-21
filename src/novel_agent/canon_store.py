@@ -24,6 +24,9 @@ from .artifacts import (
 )
 from .ledgers import ForeshadowLedger, RhythmState
 
+# The canon as the human locked it — the only thing a reset can safely rewind to.
+_AUTHORED = "canon.authored.json"
+
 
 class CanonStore:
     def __init__(self, root: str | Path) -> None:
@@ -47,6 +50,10 @@ class CanonStore:
         self._write("north_star.json", north_star)
         self._write("voice_bible.json", voice_bible)
         self._write("canon.json", canon)
+        # The reset needs something to rewind TO. Character status and knowledge
+        # accrued from episodes cannot be told apart from the authored card
+        # after the fact, so the authored shape is kept as its own file.
+        self._write(_AUTHORED, canon)
         self._write(
             "rhythm.json",
             RhythmState(
@@ -63,6 +70,10 @@ class CanonStore:
 
     def save_canon(self, canon: Canon) -> None:
         self._write("canon.json", canon)
+        # An author edit IS the setup — rewinding past it would silently undo
+        # their correction. The Canonicalizer's writes never land here.
+        if canon.last_modified_by == "author":
+            self._write(_AUTHORED, canon)
 
     def load_foreshadow(self) -> ForeshadowLedger:
         return ForeshadowLedger.model_validate_json(self._read("foreshadow.json"))
@@ -161,7 +172,7 @@ class CanonStore:
                 path.read_text(encoding="utf-8"), encoding="utf-8")
         path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
 
-    def reset_serial(self, *, keep_setup: bool = True) -> None:
+    def reset_serial(self, *, keep_setup: bool = True) -> bool:
         """Rewind to the locked setup so the serial can be re-run from 1화.
 
         Deleting episodes/ ALONE is not a reset and is an easy mistake to make:
@@ -174,24 +185,45 @@ class CanonStore:
         keep_setup=True preserves the human-locked artifacts (GenreProfile,
         NorthStar, Canon's *authored* shape, VoiceBible) but drops everything
         the serial accumulated. Character status/knowledge accrued from episodes
-        cannot be separated from the authored card, so canon is rewound to
-        version 0 with per-episode knowledge cleared.
+        cannot be separated from the authored card, so canon is restored from
+        the snapshot taken at setup (refreshed by every author edit).
+
+        Returns False when the store predates that snapshot and only a partial
+        rewind was possible.
         """
         import shutil
 
         shutil.rmtree(self.episodes_dir, ignore_errors=True)
         self.save_summary(Summary())
-        self.save_rhythm(RhythmState())
         self.save_foreshadow(ForeshadowLedger())
+        # Seeded from the profile the way initialize does. A bare RhythmState()
+        # silently swapped the genre's pacing limits for the library defaults,
+        # so pacing_directive fired on thresholds nobody asked for while the
+        # same ContextPack printed the profile's real numbers.
+        profile = self.load_genre_profile()
+        self.save_rhythm(RhythmState(
+            max_consecutive_frustration=profile.max_consecutive_frustration_beats,
+            target_catharsis_cadence=profile.target_catharsis_cadence,
+        ))
 
-        canon = self.load_canon()
-        for card in canon.characters.values():
-            card.known_facts = []
-            card.current_location = ""
-            card.condition = ""
+        snapshot = self.root / _AUTHORED
+        full = snapshot.exists()
+        if full:
+            canon = Canon.model_validate_json(snapshot.read_text(encoding="utf-8"))
+        else:
+            # A store created before the snapshot existed. The extractor's
+            # characters, rules and glossary cannot be told apart from the
+            # authored ones here, so only the per-episode fields can go — the
+            # caller is told the reset was partial rather than left to assume.
+            canon = self.load_canon()
+            for card in canon.characters.values():
+                card.known_facts = []
+                card.current_location = ""
+                card.condition = ""
         canon.version = 0
         canon.last_modified_by = "author" if not keep_setup else canon.last_modified_by
-        self.save_canon(canon)
+        self._write("canon.json", canon)
+        return full
 
     def episode_versions(self, n: int) -> list[EpisodeRecord]:
         """Superseded takes of episode n, oldest first. Empty if never redrafted."""
