@@ -126,9 +126,17 @@ _PART_RULES = {"hook": RULE_HOOK, "cliffhanger": RULE_CLIFFHANGER}
 _EDGE_CHARS = 900
 
 
-def judge_opening_and_ending(llm: LLM, draft: Draft) -> list[Violation]:
+def judge_opening_and_ending(llm: LLM, draft: Draft, *,
+                             is_final: bool = False) -> list[Violation]:
     """Structural check on the first and last passages. Findings are `major`
-    and count toward the gate (see reviser._structure_findings)."""
+    and count toward the gate (see reviser._structure_findings).
+
+    절단 sells the NEXT episode, so on the last one there is nothing to sell and
+    the rule is dropped: the planner is told to resolve the story there, and a
+    gate that then demands an unresolved cut can only be satisfied by ignoring
+    the plan. Judged here rather than at each call site so the driver and the
+    console cannot drift apart.
+    """
     prose = draft.prose.strip()
     if len(prose) < 200:
         return []
@@ -151,6 +159,8 @@ def judge_opening_and_ending(llm: LLM, draft: Draft) -> list[Violation]:
     for f in report.findings or []:
         rule = _PART_RULES.get((f.part or "").strip().lower())
         if rule is None or not (f.problem and f.evidence):
+            continue
+        if is_final and rule is RULE_CLIFFHANGER:
             continue
         out.append(Violation(
             rule=rule, severity="major", count=1, limit="0건", limit_num=0,

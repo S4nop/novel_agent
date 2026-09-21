@@ -113,10 +113,11 @@ class TestOpeningAndEnding:
     door closing — a closing shot, not a cliffhanger."""
 
     @staticmethod
-    def _judge(report=None, boom=False, prose="본문 " * 200):
+    def _judge(report=None, boom=False, prose="본문 " * 200, is_final=False):
         from novel_agent.craft import judge_opening_and_ending
         llm = StubJudge(report, boom)
-        return llm, judge_opening_and_ending(llm, Draft(episode_number=1, prose=prose))
+        return llm, judge_opening_and_ending(llm, Draft(episode_number=1, prose=prose),
+                                             is_final=is_final)
 
     def test_a_fade_out_ending_is_reported(self):
         from novel_agent.schemas import (OpeningEndingFindingDraft,
@@ -160,3 +161,24 @@ class TestOpeningAndEnding:
         for r in (RULE_HOOK, RULE_CLIFFHANGER):
             m = rule_meta(r)
             assert m and m.why and m.fix and m.bad and m.good, r
+
+    def test_the_final_episode_is_not_failed_for_resolving_its_story(self):
+        """절단 is the mechanic that sells the NEXT episode, and on the last one
+        there is no next episode — so the judge was failing the finale for being
+        a finale. The reviser cannot write a cliffhanger into an ending the
+        planner was told to resolve, so the run could only end on the breaker."""
+        from novel_agent.schemas import (OpeningEndingFindingDraft,
+                                         OpeningEndingReportDraft)
+        _, vs = self._judge(OpeningEndingReportDraft(findings=[
+            OpeningEndingFindingDraft(part="cliffhanger", problem="사건이 해결된 뒤 끊는다",
+                                      evidence="모든 것이 제자리를 찾았다")]), is_final=True)
+        assert vs == []
+
+    def test_a_weak_opening_is_still_caught_on_the_final_episode(self):
+        from novel_agent.craft import RULE_HOOK
+        from novel_agent.schemas import (OpeningEndingFindingDraft,
+                                         OpeningEndingReportDraft)
+        _, vs = self._judge(OpeningEndingReportDraft(findings=[
+            OpeningEndingFindingDraft(part="hook", problem="배경 묘사로 시작한다",
+                                      evidence="청사 앞마당은 비어 있었다")]), is_final=True)
+        assert [v.rule for v in vs] == [RULE_HOOK]

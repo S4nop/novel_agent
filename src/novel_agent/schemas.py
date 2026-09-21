@@ -91,7 +91,10 @@ class BeatSheetDraft(BaseModel):
     the_one_progression: str = Field(description="이 화에서 반드시 일어나는 단 하나의 진전")
     closing_cliffhanger: str
     entities_present: list[str]
-    seeds_to_plant: list[SeedDraft]
+    seeds_to_plant: list[SeedDraft] = Field(
+        default_factory=list,
+        description="이 화에서 새로 던지는 떡밥. major = 회수 전에는 완결할 수 없는 "
+                    "줄기, minor = 나중에 한 번 되짚으면 끝나는 디테일. 없으면 빈 목록.")
     seeds_to_pay: list[str] = Field(
         default_factory=list,
         description="이 화에서 회수하는 떡밥의 ID 목록. [회수 기한이 된 떡밥]에 대괄호로 "

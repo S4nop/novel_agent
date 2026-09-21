@@ -145,13 +145,15 @@ def _bs_draft(**kw):
     return BeatSheetDraft(**{**base, **kw})
 
 
-def _plan(llm, rhythm=None, foreshadow=None, episode=1):
+def _plan(llm, rhythm=None, foreshadow=None, episode=1, extra_directive="",
+          is_final=False):
     ns = north_star()
     return plan_episode(
         llm, episode_number=episode, profile=genre_profile(), north_star=ns,
         canon=init_canon_and_voice(ScriptedLLM(_canon_draft()), "i", genre_profile(), ns)[0],
         arc_map=seed_arc_map(llm, ns), rhythm=rhythm or RhythmState(),
         foreshadow=foreshadow or ForeshadowLedger(), summary=Summary(),
+        extra_directive=extra_directive, is_final=is_final,
     )
 
 
@@ -287,3 +289,58 @@ def test_orientation_does_not_displace_the_pacing_directive():
     _plan(llm, rhythm=starved, episode=1)
     sent = llm.prompts[-1]
     assert "처음 봅니다" in sent and "사이다" in sent
+
+
+# ── 떡밥 심기 / 수렴 (검수 2, 10, 5) ─────────────────────────────────────────
+
+def test_the_planner_is_told_to_plant_seeds():
+    """No prompt ever asked for seeds_to_plant, so across every store on disk
+    the ledger had minted zero seeds — next_seq was still 1. Everything
+    downstream (due(), unpaid_major(), completion_ready()) was therefore
+    vacuous and the driver declared 완결 for a story it had tracked no threads
+    in."""
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm)
+    assert "seeds_to_plant" in llm.prompts[-1]
+
+
+def test_a_converging_run_is_shown_the_id_of_a_major_seed_it_must_pay():
+    """The convergence directive calls a MAJOR payoff mandatory, but due()
+    filters by deadline and a seed planted late has a due_by_ep past the
+    target — so the id was never rendered and the payoff was undeclarable."""
+    from novel_agent.artifacts import PlannedSeed, SeedMagnitude
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="검왕의 정체",
+                                 magnitude=SeedMagnitude.MAJOR, due_by_ep=34), episode=25)
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, foreshadow=led, episode=28, extra_directive="[수렴 구간] 회수하세요")
+    assert f"[{seed.seed_id}]" in llm.prompts[-1]
+
+
+def test_a_seed_whose_deadline_has_not_arrived_stays_hidden_mid_run():
+    """Showing every open seed every episode would nag the planner into paying
+    threads off early — the block is a deadline list, not an inventory."""
+    from novel_agent.artifacts import PlannedSeed, SeedMagnitude
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="검왕의 정체",
+                                 magnitude=SeedMagnitude.MAJOR, due_by_ep=34), episode=25)
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, foreshadow=led, episode=28)
+    assert f"[{seed.seed_id}]" not in llm.prompts[-1]
+
+
+def test_the_final_episode_is_not_told_to_stop_mid_beat():
+    """The 완결 directive orders everything resolved while the static cut rule
+    in the same template demands an unresolved stop. Two contradictory
+    instructions landed in one rendered prompt on the target episode."""
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, is_final=True)
+    assert "마지막 비트는 진행 중인 상태로 끊습니다" not in llm.prompts[-1]
+
+
+def test_a_normal_episode_is_still_told_where_to_cut():
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm)
+    assert "마지막 비트는 진행 중인 상태로 끊습니다" in llm.prompts[-1]

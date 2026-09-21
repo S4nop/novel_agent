@@ -282,10 +282,22 @@ def plan_episode(
     # pacing directive rather than added as a new prompt slot, so an edited
     # episode_plan.md cannot accidentally drop it.
     extra_directive: str = "",
+    # The last episode resolves instead of cutting. Without this the 완결
+    # directive ("남은 떡밥을 모두 회수하고 결말을 내세요") and the static cut
+    # rule ("마지막 비트는 진행 중인 상태로 끊습니다") landed in one rendered
+    # prompt, and only one of them was rewarded by the gate.
+    is_final: bool = False,
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
     arc = next((a for a in arc_map.arcs if a.status == "active"), None)
     due = foreshadow.due(episode_number)
+    if extra_directive:
+        # Converging: the directive calls a MAJOR payoff mandatory, but this
+        # block is the planner's only channel for seed IDs and due() filters by
+        # deadline — a seed planted late has a due_by_ep past the target, so its
+        # id was never shown and the payoff it demanded was undeclarable.
+        seen = {x.seed_id for x in due}
+        due = due + [x for x in foreshadow.unpaid_major() if x.seed_id not in seen]
     cast = ", ".join(canon.characters)
 
     draft = llm.structured(
@@ -310,6 +322,8 @@ def plan_episode(
                 # declare a payoff with — seeds_to_pay would always come back empty
                 due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
                                         for x in due) or "없음"),
+                closing_rule=render(
+                    "closing_rule_final" if is_final else "closing_rule_serial"),
                 episode_number=episode_number)},
         ],
         BeatSheetDraft,

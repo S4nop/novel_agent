@@ -115,6 +115,7 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         arc_map=seed_arc_map(llm, ns), rhythm=store.load_rhythm(),
         foreshadow=foreshadow, summary=store.load_summary(),
         extra_directive=convergence_directive(episode, cfg, len(foreshadow.unpaid_major())),
+        is_final=episode >= cfg.target_episodes,
     )
     prev = store.load_episode(episode - 1)
     pack = ContextPackBuilder().build(
@@ -126,14 +127,16 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
     draft = draft_episode(llm, pack, max_tokens=32768)
     # Judged on the draft so the revise loop can actually repair a weak hook or
     # a fade-out ending. Judging after revision would only report the failure.
-    structural = judge_opening_and_ending(llm, draft)
+    is_final = episode >= cfg.target_episodes
+    structural = judge_opening_and_ending(llm, draft, is_final=is_final)
     result = revise_draft(
         llm, draft, pack, target_chars=beats.length_target,
         max_iterations=cfg.revise_iterations, forbidden_terms=cfg.forbidden_terms,
         extra_findings=lambda d: deterministic_findings(d, beats, canon),
         structural_findings=structural,
         # ...and re-judged on the winner, so a repaired hook actually clears.
-        structural_recheck=lambda d: judge_opening_and_ending(llm, d),
+        structural_recheck=lambda d: judge_opening_and_ending(llm, d,
+                                                              is_final=is_final),
     )
     continuity = check_continuity(llm, result.draft, beats, canon)
     # Track B is ADVISORY: it reports craft problems for the author and the
