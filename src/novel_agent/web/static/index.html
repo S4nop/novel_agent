@@ -313,6 +313,10 @@ async function writeEpisode(){
     const r = await api(`/api/projects/${PID}/episode`,'POST',{
       episode:+$('#epNo').value, revise:$('#doRev').checked, iterations:+$('#iters').value});
     $('#prose').textContent = r.prose;
+    // Advance to the next episode once this one is in canon. The field was
+    // initialised to 1 and never written back, so pressing 집필 again silently
+    // re-committed 1화 — doubling its pacing debt and its 떡밥.
+    if (r.committed) $('#epNo').value = (+$('#epNo').value) + 1;
     const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
     // The verdict pill must follow the GATE, not the style score: a
     // continuity-blocked episode can score 100 and was rendering green.

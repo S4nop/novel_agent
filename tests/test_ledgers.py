@@ -68,3 +68,41 @@ def test_minted_seed_ids_are_unique():
     b = led.plant(PlannedSeed(proposed_seed_id="b", description="복선 B"), episode=1)
     assert a.seed_id != b.seed_id
     assert set(led.seeds) == {a.seed_id, b.seed_id}
+
+
+def test_debt_is_recomputed_from_the_beat_log_when_an_episode_is_re_recorded():
+    """record_episode was a fold with no inverse, so a re-recorded episode
+    could only ever be added again. The log holds the whole history, so the
+    meter is derived from it instead."""
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.record_episode([F, F], episode=1)
+    r.record_episode([F], episode=2)
+    assert r.frustration_debt == 3
+
+    r.record_episode([P], episode=1)
+
+    assert r.beat_log == [[P], [F]]
+    assert r.frustration_debt == 1
+
+
+def test_planting_the_same_seed_twice_for_one_episode_mints_one_id():
+    led = ForeshadowLedger()
+    seed = PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                       magnitude=SeedMagnitude.MAJOR, due_by_ep=5)
+    first = led.plant(seed, episode=1)
+    again = led.plant(seed, episode=1)
+
+    assert first.seed_id == again.seed_id
+    assert list(led.seeds) == [first.seed_id]
+    assert led.next_seq == 2
+
+
+def test_the_same_description_planted_in_a_later_episode_is_a_new_seed():
+    """Dedupe must not swallow a thread the author deliberately re-plants."""
+    led = ForeshadowLedger()
+    seed = PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                       magnitude=SeedMagnitude.MAJOR, due_by_ep=9)
+    led.plant(seed, episode=1)
+    led.plant(seed, episode=4)
+
+    assert len(led.seeds) == 2

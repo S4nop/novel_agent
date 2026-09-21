@@ -56,7 +56,7 @@ def commit_episode_state(
     """
     # 1) rhythm — fold this episode's beat types into the running debt meter
     rhythm: RhythmState = store.load_rhythm()
-    rhythm.record_episode(beats.beat_types())
+    rhythm.record_episode(beats.beat_types(), episode=beats.episode_number)
     store.save_rhythm(rhythm)
 
     # 2) foreshadow — mint canonical ids for planted seeds, mark paid ones
@@ -72,9 +72,19 @@ def commit_episode_state(
     #    can replace this later; an empty summary was starving the next episode)
     summary: Summary = store.load_summary()
     line = f"{beats.episode_number}화: {beats.the_one_progression or beats.opening_hook}"
-    summary.story_so_far = "\n".join(
-        [s for s in (summary.story_so_far, line) if s]
-    )[-4000:]
+    # Replace this episode's previous line IN PLACE, if any: a re-commit used
+    # to append a second one, teaching every later plan that the episode
+    # happened twice. Appending the replacement would put 1화 after 2화, which
+    # is worse — the planner reads this as the story in order.
+    head = f"{beats.episode_number}화: "
+    lines = [s for s in summary.story_so_far.split("\n") if s]
+    for i, prior in enumerate(lines):
+        if prior.startswith(head):
+            lines[i] = line
+            break
+    else:
+        lines.append(line)
+    summary.story_so_far = "\n".join(lines)[-4000:]
     summary.current_arc = beats.closing_cliffhanger or summary.current_arc
     store.save_summary(summary)
 

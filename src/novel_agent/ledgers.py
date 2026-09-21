@@ -27,16 +27,31 @@ class RhythmState(BaseModel):
     episodes_since_payoff: int = 0
     beat_log: list[list[BeatType]] = Field(default_factory=list)
 
-    def record_episode(self, beats: list[BeatType]) -> None:
-        """Fold one accepted episode's beat tags into the running rhythm state."""
-        frustration = sum(1 for b in beats if b in _FRUSTRATION_BEATS)
-        self.frustration_debt += frustration
-        if any(b in _PAYOFF_BEATS for b in beats):
-            self.frustration_debt = max(0, self.frustration_debt - frustration - 1)
-            self.episodes_since_payoff = 0
+    def record_episode(self, beats: list[BeatType], *,
+                       episode: int | None = None) -> None:
+        """Record one accepted episode's beat tags and re-derive the meters.
+
+        This used to fold straight into the counters, which has no inverse: a
+        re-committed episode could only ever be added a second time, doubling
+        the debt that drives pacing_directive. The log already holds the whole
+        history, so the meters are computed from it and re-recording an episode
+        replaces its entry instead.
+        """
+        if episode is not None and episode - 1 < len(self.beat_log):
+            self.beat_log[episode - 1] = list(beats)
         else:
-            self.episodes_since_payoff += 1
-        self.beat_log.append(list(beats))
+            self.beat_log.append(list(beats))
+
+        debt = since = 0
+        for tags in self.beat_log:
+            frustration = sum(1 for b in tags if b in _FRUSTRATION_BEATS)
+            debt += frustration
+            if any(b in _PAYOFF_BEATS for b in tags):
+                debt = max(0, debt - frustration - 1)
+                since = 0
+            else:
+                since += 1
+        self.frustration_debt, self.episodes_since_payoff = debt, since
 
     def blocks_setup_heavy_episode(self) -> bool:
         """True when an owed payoff must land before another setup-heavy episode."""
@@ -70,7 +85,15 @@ class ForeshadowLedger(BaseModel):
         return sid
 
     def plant(self, planned: PlannedSeed, episode: int) -> ForeshadowSeed:
-        """Mint a canonical id for a planner-proposed seed and record it as planted."""
+        """Mint a canonical id for a planner-proposed seed and record it as planted.
+
+        Re-planting the same thread for the same episode returns the existing
+        seed: a console retry used to mint a second id for it, and every
+        duplicate MAJOR pushed completion_ready further out.
+        """
+        for existing in self.seeds.values():
+            if existing.planted_ep == episode and existing.description == planned.description:
+                return existing
         seed = ForeshadowSeed(
             seed_id=self.mint_seed_id(),
             description=planned.description,

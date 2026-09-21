@@ -99,3 +99,46 @@ def test_unknown_seed_id_in_pay_list_is_ignored_not_fatal(tmp_path):
     commit_episode_state(s, Draft(episode_number=1, prose="1화"),
                          _beats(1, pay=["seed-does-not-exist"]))
     assert s.load_foreshadow().seeds == {}
+
+
+# ── re-committing an episode (console retry, crash-resume) ───────────────────
+# The console's 화 field is initialised to 1 and never written back, so pressing
+# 집필 a second time re-commits episode 1. Every ledger folded it in twice.
+
+def test_committing_the_same_episode_twice_leaves_one_episodes_worth_of_state(tmp_path):
+    s = _store(tmp_path)
+    beats = _beats(1, [F, F], plant=["떡밥A"])
+    draft = Draft(episode_number=1, prose="1화")
+
+    commit_episode_state(s, draft, beats)
+    commit_episode_state(s, draft, beats)
+
+    assert s.load_rhythm().frustration_debt == 2
+    assert s.load_rhythm().beat_log == [[F, F]]
+    assert [x.description for x in s.load_foreshadow().seeds.values()] == ["떡밥A"]
+    assert s.load_summary().story_so_far == "1화: 1화 진전"
+
+
+def test_re_drafting_an_episode_replaces_its_contribution(tmp_path):
+    """A retry re-plans, so the new take can carry different beats. Its
+    predecessor's tags must not linger next to it in the log."""
+    s = _store(tmp_path)
+    commit_episode_state(s, Draft(episode_number=1, prose="a"), _beats(1, [F, F]))
+    commit_episode_state(s, Draft(episode_number=2, prose="b"), _beats(2, [F]))
+
+    commit_episode_state(s, Draft(episode_number=1, prose="a2"), _beats(1, [P]))
+
+    r = s.load_rhythm()
+    assert r.beat_log == [[P], [F]]
+    assert r.frustration_debt == 1
+
+
+def test_re_committing_an_episode_does_not_duplicate_its_summary_line(tmp_path):
+    """story_so_far is fed into every later plan, so a duplicated line teaches
+    the planner the same episode happened twice."""
+    s = _store(tmp_path)
+    commit_episode_state(s, Draft(episode_number=1, prose="a"), _beats(1))
+    commit_episode_state(s, Draft(episode_number=2, prose="b"), _beats(2))
+    commit_episode_state(s, Draft(episode_number=1, prose="a2"), _beats(1))
+
+    assert s.load_summary().story_so_far == "1화: 1화 진전\n2화: 2화 진전"
