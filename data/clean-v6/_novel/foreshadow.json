@@ -1,0 +1,35 @@
+{
+  "seeds": {
+    "seed-0001": {
+      "seed_id": "seed-0001",
+      "description": "'환생한 홍길동' 소문이 대니얼을 향해 처음으로 붙기 시작한다 — 진짜 반체제 인물과의 혼동이 시작되는 지점.",
+      "magnitude": "major",
+      "planted_ep": 1,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 7,
+      "status": "planted"
+    },
+    "seed-0002": {
+      "seed_id": "seed-0002",
+      "description": "박현오가 승인권을 쥔 상급 관아 인물로서 조합 편의를 봐주는 듯한 태도를 은근히 드러낸다 — 기업과의 결탁 가능성.",
+      "magnitude": "minor",
+      "planted_ep": 1,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 3,
+      "status": "planted"
+    },
+    "seed-0003": {
+      "seed_id": "seed-0003",
+      "description": "박도화가 대니얼의 뒷모습을 유심히 지켜보며 무언가 알고 있는 듯한 태도를 보인다 — 향후 정보원 역할의 실마리.",
+      "magnitude": "minor",
+      "planted_ep": 1,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 4,
+      "status": "planted"
+    }
+  },
+  "next_seq": 4
+}
