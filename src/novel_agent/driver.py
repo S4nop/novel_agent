@@ -116,6 +116,7 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         foreshadow=foreshadow, summary=store.load_summary(),
         extra_directive=convergence_directive(episode, cfg, len(foreshadow.unpaid_major())),
         is_final=episode >= cfg.target_episodes,
+        total_episodes=cfg.target_episodes,
     )
     prev = store.load_episode(episode - 1)
     pack = ContextPackBuilder().build(

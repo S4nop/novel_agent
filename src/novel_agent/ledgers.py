@@ -117,6 +117,20 @@ class ForeshadowLedger(BaseModel):
     def _open(self, seed: ForeshadowSeed) -> bool:
         return seed.status not in (SeedStatus.PAID, SeedStatus.ABANDONED)
 
+    def ripening(self, current_ep: int) -> list[ForeshadowSeed]:
+        """Open seeds due NEXT episode — the last chance to touch one before
+        it has to pay off.
+
+        due() only fires on the episode a seed is ALREADY due, so a seed
+        planted in 1화 and due in 3화 was shown to nobody in 2화: 던지기 →
+        침묵 → 회수. With no touch in between, a short 떡밥 reads as a
+        sentence answering itself rather than a thread.
+        """
+        return [
+            s for s in self.seeds.values()
+            if self._open(s) and s.due_by_ep == current_ep + 1
+        ]
+
     def due(self, current_ep: int) -> list[ForeshadowSeed]:
         """Open seeds whose payoff is due by the current episode."""
         return [

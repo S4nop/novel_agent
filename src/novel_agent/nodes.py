@@ -222,6 +222,20 @@ def _magnitude(raw: str) -> SeedMagnitude:
     return SeedMagnitude.MAJOR if "major" in raw.lower() else SeedMagnitude.MINOR
 
 
+def _seed_deadline(raw: int | None, magnitude: SeedMagnitude, episode: int,
+                   total: int | None, cadence: int) -> int | None:
+    """The episode a planted seed must be paid by, or None for an open minor.
+
+    A deadline at or before the episode that plants the seed makes it overdue
+    the moment it appears, so it is pushed out rather than honoured.
+    """
+    if raw and raw > episode:
+        return raw
+    if magnitude is not SeedMagnitude.MAJOR:
+        return None
+    return max(total or (episode + max(1, cadence) * 3), episode + 1)
+
+
 def _resolve_seed_ids(raw: list[str], foreshadow: ForeshadowLedger) -> list[str]:
     """Map whatever the planner wrote back onto real seed ids.
 
@@ -287,6 +301,10 @@ def plan_episode(
     # rule ("마지막 비트는 진행 중인 상태로 끊습니다") landed in one rendered
     # prompt, and only one of them was rewarded by the gate.
     is_final: bool = False,
+    # How long the serial is. Without it the model was asked to name a payoff
+    # deadline with no denominator anywhere in the prompt, and the MAJOR
+    # fallback below derived a 줄기's lifespan from the 사이다 rhythm.
+    total_episodes: int | None = None,
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
     arc = next((a for a in arc_map.arcs if a.status == "active"), None)
@@ -324,6 +342,10 @@ def plan_episode(
                                         for x in due) or "없음"),
                 closing_rule=render(
                     "closing_rule_final" if is_final else "closing_rule_serial"),
+                ripening_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
+                                             for x in foreshadow.ripening(episode_number))
+                                or "없음"),
+                total_episodes=(total_episodes or "미정"),
                 episode_number=episode_number)},
         ],
         BeatSheetDraft,
@@ -342,10 +364,15 @@ def plan_episode(
                 # A MAJOR seed with no deadline is unpayable: due() skips it, so
                 # its id is never shown to the planner, while unpaid_major()
                 # counts it forever — completion_ready() would stay False for the
-                # life of the run. Give it the genre's catharsis window instead.
-                due_by_ep=(s.due_by_ep or None) or (
-                    episode_number + max(1, profile.target_catharsis_cadence) * 3
-                    if _magnitude(s.magnitude) is SeedMagnitude.MAJOR else None),
+                # life of the run. It needs a deadline, and the serial's end is
+                # the honest one: a MAJOR is by definition a thread the story
+                # cannot finish without. The old fallback used the 사이다
+                # cadence, which gave a 30화 serial's premise-level thread a
+                # 7화 deadline (1 + max(1,2)*3) — a number about payoff rhythm
+                # deciding how long the spine may stay open.
+                due_by_ep=_seed_deadline(
+                    s.due_by_ep, _magnitude(s.magnitude), episode_number,
+                    total_episodes, profile.target_catharsis_cadence),
             )
             for i, s in enumerate(draft.seeds_to_plant, 1)
         ],
@@ -354,6 +381,7 @@ def plan_episode(
         # Normalized first: the prompt renders "[seed-0001]", so a model copying
         # what it sees returns the bracketed form, which bare membership dropped.
         seeds_to_pay=_resolve_seed_ids(draft.seeds_to_pay, foreshadow),
+        seeds_to_reinforce=_resolve_seed_ids(draft.seeds_to_reinforce, foreshadow),
         closing_cliffhanger=draft.closing_cliffhanger,
         length_target=profile.episode_length_target,
         pov=profile.pov,

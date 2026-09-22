@@ -63,6 +63,12 @@ def commit_episode_state(
     ledger: ForeshadowLedger = store.load_foreshadow()
     for planned in beats.seeds_to_plant:
         ledger.plant(planned, episode=beats.episode_number)
+    # 흔들기 before 회수: reinforce() had no caller anywhere, so reinforced_in
+    # was structurally always empty and a 떡밥 went straight from planted to
+    # paid with nothing in between.
+    for seed_id in beats.seeds_to_reinforce:
+        if seed_id in ledger.seeds:
+            ledger.reinforce(seed_id, episode=beats.episode_number)
     for seed_id in beats.seeds_to_pay:
         if seed_id in ledger.seeds:
             ledger.pay(seed_id, episode=beats.episode_number)

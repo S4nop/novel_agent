@@ -99,6 +99,10 @@ class BeatSheetDraft(BaseModel):
         default_factory=list,
         description="이 화에서 회수하는 떡밥의 ID 목록. [회수 기한이 된 떡밥]에 대괄호로 "
                     "표시된 ID를 그대로 쓰세요. 회수하지 않으면 빈 목록.")
+    seeds_to_reinforce: list[str] = Field(
+        default_factory=list,
+        description="이 화에서 회수하지 않고 한 번 더 건드리는 떡밥의 ID 목록. "
+                    "[흔들 때가 된 떡밥]에 표시된 ID를 그대로 쓰세요.")
 
 
 # ── Track A continuity (DESIGN §3) ───────────────────────────────────────────

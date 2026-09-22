@@ -177,6 +177,7 @@ class BeatSheet(BaseModel):
     the_one_progression: str = ""
     seeds_to_plant: list[PlannedSeed] = Field(default_factory=list)
     seeds_to_pay: list[str] = Field(default_factory=list)   # canonical seed_ids
+    seeds_to_reinforce: list[str] = Field(default_factory=list)   # touched, not paid
     closing_cliffhanger: str = ""
     length_target: int = 5200
     pov: str = "1인칭"

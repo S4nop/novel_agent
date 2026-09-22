@@ -133,20 +133,20 @@ def test_canon_init_flattens_voice_into_character_and_flags_rule_hardness():
     assert voice.spec.startswith("짧은 문장")
 
 
-def _bs_draft(**kw):
+def _bs_draft(seed_due=10, **kw):
     base = dict(
         opening_hook="hook", the_one_progression="prog", closing_cliffhanger="cliff",
         entities_present=["홍길동"],
         beats=[BeatDraft(text="b1", beat_type="payoff"),
                BeatDraft(text="b2", beat_type="이상한값")],
-        seeds_to_plant=[SeedDraft(description="정체", magnitude="major", due_by_ep=10),
+        seeds_to_plant=[SeedDraft(description="정체", magnitude="major", due_by_ep=seed_due),
                         SeedDraft(description="소문", magnitude="minor", due_by_ep=0)],
     )
     return BeatSheetDraft(**{**base, **kw})
 
 
 def _plan(llm, rhythm=None, foreshadow=None, episode=1, extra_directive="",
-          is_final=False):
+          is_final=False, total_episodes=None):
     ns = north_star()
     return plan_episode(
         llm, episode_number=episode, profile=genre_profile(), north_star=ns,
@@ -154,6 +154,7 @@ def _plan(llm, rhythm=None, foreshadow=None, episode=1, extra_directive="",
         arc_map=seed_arc_map(llm, ns), rhythm=rhythm or RhythmState(),
         foreshadow=foreshadow or ForeshadowLedger(), summary=Summary(),
         extra_directive=extra_directive, is_final=is_final,
+        total_episodes=total_episodes,
     )
 
 
@@ -344,3 +345,40 @@ def test_a_normal_episode_is_still_told_where_to_cut():
     llm = ScriptedLLM(_bs_draft())
     _plan(llm)
     assert "마지막 비트는 진행 중인 상태로 끊습니다" in llm.prompts[-1]
+
+
+def test_the_planner_is_shown_a_seed_ripening_for_the_next_episode():
+    from novel_agent.artifacts import PlannedSeed
+
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="x", description="사라진 호패",
+                                 due_by_ep=3), episode=1)
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, foreshadow=led, episode=2)
+    assert f"[{seed.seed_id}]" in llm.prompts[-1]
+
+
+def test_the_planner_is_told_how_long_the_serial_is():
+    """Without a denominator the model was asked to name a payoff deadline with
+    no idea whether the story runs 10 episodes or 200 — and for episodes 1-24
+    of a 30-episode run, nothing in the prompt carried the number."""
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, episode=3, total_episodes=30)
+    assert "30" in llm.prompts[-1]
+
+
+def test_a_major_seed_without_a_deadline_is_anchored_on_the_serial_not_the_cadence():
+    """The fallback was episode + catharsis_cadence*3, so the 사이다 rhythm
+    decided how long the story's spine could stay open: a 30화 serial with
+    cadence 2 gave its premise-level thread a 7화 deadline."""
+    llm = ScriptedLLM(_bs_draft(seed_due=0))
+    bs = _plan(llm, episode=1, total_episodes=30)
+    major = next(s for s in bs.seeds_to_plant if s.magnitude is SeedMagnitude.MAJOR)
+    assert major.due_by_ep == 30
+
+
+def test_a_seed_due_before_it_is_planted_is_pushed_past_the_current_episode():
+    """due() would surface it as already overdue on the episode it appears."""
+    llm = ScriptedLLM(_bs_draft(seed_due=2))
+    bs = _plan(llm, episode=5, total_episodes=30)
+    assert all(s.due_by_ep is None or s.due_by_ep > 5 for s in bs.seeds_to_plant)

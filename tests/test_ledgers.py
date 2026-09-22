@@ -106,3 +106,26 @@ def test_the_same_description_planted_in_a_later_episode_is_a_new_seed():
     led.plant(seed, episode=4)
 
     assert len(led.seeds) == 2
+
+
+# ── 흔들기: the missing middle between 던지기 and 회수 ────────────────────────
+
+def test_a_seed_is_surfaced_for_reinforcement_the_episode_before_it_is_due():
+    """due() only fires on the episode a seed is ALREADY due, so a seed planted
+    in 1화 and due in 3화 was shown to nobody in 2화: 던지기 → 침묵 → 회수. With
+    no touch in between a short 떡밥 reads as a sentence answering itself."""
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 magnitude=SeedMagnitude.MINOR, due_by_ep=3), episode=1)
+
+    assert [s.seed_id for s in led.ripening(2)] == [seed.seed_id]
+    assert led.ripening(1) == []          # just planted, nothing to shake yet
+    assert led.ripening(3) == []          # already due — due() owns it now
+
+
+def test_a_paid_seed_is_never_offered_for_reinforcement():
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 due_by_ep=3), episode=1)
+    led.pay(seed.seed_id, episode=2)
+    assert led.ripening(2) == []

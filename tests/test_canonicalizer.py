@@ -142,3 +142,35 @@ def test_re_committing_an_episode_does_not_duplicate_its_summary_line(tmp_path):
     commit_episode_state(s, Draft(episode_number=1, prose="a2"), _beats(1))
 
     assert s.load_summary().story_so_far == "1화: 1화 진전\n2화: 2화 진전"
+
+
+def test_a_reinforced_seed_records_the_episode_that_touched_it(tmp_path):
+    """reinforce() had no caller anywhere in src/, so reinforced_in was
+    structurally always empty and SeedStatus.REINFORCED unreachable."""
+    from novel_agent.artifacts import SeedStatus
+
+    s = _store(tmp_path)
+    commit_episode_state(s, Draft(episode_number=1, prose="a"), _beats(1, plant=["떡밥A"]))
+    sid = next(iter(s.load_foreshadow().seeds))
+
+    b = _beats(2)
+    b.seeds_to_reinforce = [sid]
+    commit_episode_state(s, Draft(episode_number=2, prose="b"), b)
+
+    seed = s.load_foreshadow().seeds[sid]
+    assert seed.reinforced_in == [2]
+    assert seed.status is SeedStatus.REINFORCED
+
+
+def test_a_reinforced_seed_can_still_be_paid_off(tmp_path):
+    from novel_agent.artifacts import SeedStatus
+
+    s = _store(tmp_path)
+    commit_episode_state(s, Draft(episode_number=1, prose="a"), _beats(1, plant=["떡밥A"]))
+    sid = next(iter(s.load_foreshadow().seeds))
+    b2 = _beats(2); b2.seeds_to_reinforce = [sid]
+    commit_episode_state(s, Draft(episode_number=2, prose="b"), b2)
+
+    commit_episode_state(s, Draft(episode_number=3, prose="c"), _beats(3, pay=[sid]))
+
+    assert s.load_foreshadow().seeds[sid].status is SeedStatus.PAID
