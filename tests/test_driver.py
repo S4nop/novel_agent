@@ -31,9 +31,13 @@ class FakeLLM:
     """Boundary fake. `contradiction` plants a continuity blocker; `refuse`
     raises the way a real refusal does."""
 
-    def __init__(self, prose=CLEAN, contradiction=False, refuse=False, seeds=()):
+    def __init__(self, prose=CLEAN, contradiction=False, refuse=False, seeds=(),
+                 plans_absent=()):
         self.prose, self.contradiction, self.refuse = prose, contradiction, refuse
         self.seeds = list(seeds)
+        # characters the beat sheet promises that the prose never delivers —
+        # what makes deterministic_findings fire
+        self.plans_absent = list(plans_absent)
         self.usage = Usage()
         self.directives: list[str] = []
 
@@ -44,7 +48,8 @@ class FakeLLM:
             self.directives.append(messages[-1]["content"])
             return BeatSheetDraft(
                 opening_hook="h", the_one_progression="p", closing_cliffhanger="c",
-                entities_present=[], beats=[BeatDraft(text="b", beat_type="payoff")],
+                entities_present=list(self.plans_absent),
+                beats=[BeatDraft(text="b", beat_type="payoff")],
                 seeds_to_plant=[SeedDraft(description=d, magnitude="major", due_by_ep=99)
                                 for d in self.seeds])
         if schema is ContinuityReportDraft:
@@ -280,3 +285,18 @@ def test_an_account_failure_stops_immediately_with_the_real_reason(tmp_path):
     assert r.outcomes == []                       # no retries burned
     assert "API 사용 불가" in r.stopped_because
     assert "credit balance" in r.stopped_because  # the operator sees what to fix
+
+
+def test_a_finding_is_reported_once_however_many_tracks_produced_it(tmp_path):
+    """deterministic_findings runs inside the revise loop (-> result.remaining)
+    AND inside check_continuity (-> continuity), and the driver concatenated
+    both. A live run printed '계획 이탈: 예정 인물 부재 — 코피 아산테' twice,
+    making the report look worse than the episode was."""
+    store = _store(tmp_path)
+    llm = FakeLLM(plans_absent=["없는사람"])
+    report = run_serial(llm, store, config=RunConfig(target_episodes=1,
+                                                     max_consecutive_failures=1))
+
+    findings = report.outcomes[0].findings
+    assert any("없는사람" in f for f in findings)          # it really fired
+    assert len(findings) == len(set(findings))

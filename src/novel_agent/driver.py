@@ -225,9 +225,14 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             craft_findings=len(craft),
             reason="" if passed else _why(result, continuity, blocked),
             prose=result.draft.prose,
-            findings=[f"[{v.severity}] {v.rule} — {v.evidence}"
-                      for v in list(continuity) + list(result.remaining) + list(craft)
-                      if v.evidence]))
+            # deterministic_findings runs inside the revise loop AND inside
+            # check_continuity, so the same breach arrives twice. Reported
+            # twice it makes the episode look worse than it is; dict.fromkeys
+            # keeps the first occurrence and the order.
+            findings=list(dict.fromkeys(
+                f"[{v.severity}] {v.rule} — {v.evidence}"
+                for v in list(continuity) + list(result.remaining) + list(craft)
+                if v.evidence))))
 
         if not passed:
             # Retry the SAME episode. Advancing would leave a hole in the
