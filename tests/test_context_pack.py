@@ -8,14 +8,14 @@ from .factories import beat_sheet, canon, genre_profile, north_star, summary, vo
 
 
 def _build(builder=None, *, current_episode=1, previous_episode=None,
-           foreshadow=None, rhythm=None, the_canon=None, summ=None):
+           foreshadow=None, rhythm=None, the_canon=None, summ=None, beats=None):
     builder = builder or ContextPackBuilder()
     return builder.build(
         genre_profile=genre_profile(),
         north_star=north_star(),
         voice_bible=voice_bible(),
         canon=the_canon or canon(),
-        beat_sheet=beat_sheet(current_episode),
+        beat_sheet=beats if beats is not None else beat_sheet(current_episode),
         foreshadow=foreshadow or ForeshadowLedger(),
         rhythm=rhythm or RhythmState(),
         summary=summ or summary(),
@@ -82,3 +82,52 @@ def test_oversized_previous_episode_is_trimmed_to_budget_and_prefix_preserved():
 
     assert constrained.suffix_tokens <= 400
     assert constrained.cached_prefix == unconstrained.cached_prefix  # prefix never trimmed
+
+
+# ── supporting-cast voices (two live runs lost them) ────────────────────────
+def test_a_supporting_character_in_this_episode_brings_their_speech_habits():
+    """Only main_cast() voices reached the pack, so the drafter never saw a
+    supporting character's 종결어미 or 말버릇 — but the craft judge reads the
+    whole canon. Measured twice: '노준서의 확정된 버릇이 그의 유일한 등장
+    장면에서 한 번도 나오지 않는다', and characters became indistinguishable by
+    dialogue alone."""
+    from novel_agent.artifacts import CharacterCard, VoiceCard
+
+    c = canon()
+    c.characters["노준서"] = CharacterCard(
+        name="노준서", is_main_cast=False,
+        voice=VoiceCard(speech_register="매끄러운 존댓말", honorific_pattern="존대",
+                        speech_tics=["문장 끝에 '그렇죠?'를 붙인다"],
+                        exemplar_lines=["유리하게 해석되는 게 맞죠?"]))
+    pack = _build(the_canon=c, beats=beat_sheet(2, entities_present=["노준서"]))
+
+    assert "그렇죠?" in pack.volatile_suffix
+    assert "노준서" in pack.volatile_suffix
+
+
+def test_a_supporting_character_not_in_this_episode_is_left_out():
+    """The block is per-episode, so it must not grow into the whole cast as
+    canon accumulates people."""
+    from novel_agent.artifacts import CharacterCard, VoiceCard
+
+    c = canon()
+    c.characters["노준서"] = CharacterCard(
+        name="노준서", is_main_cast=False,
+        voice=VoiceCard(speech_tics=["문장 끝에 '그렇죠?'를 붙인다"]))
+    pack = _build(the_canon=c, beats=beat_sheet(2, entities_present=["박노미"]))
+
+    assert "그렇죠?" not in pack.volatile_suffix
+
+
+def test_the_stable_prefix_does_not_move_when_the_episodes_cast_changes():
+    """Per-episode data in the cached prefix would bust the cache every episode."""
+    from novel_agent.artifacts import CharacterCard, VoiceCard
+
+    c = canon()
+    c.characters["노준서"] = CharacterCard(
+        name="노준서", is_main_cast=False,
+        voice=VoiceCard(speech_tics=["문장 끝에 '그렇죠?'를 붙인다"]))
+    a = _build(the_canon=c, beats=beat_sheet(2, entities_present=["노준서"]))
+    b = _build(the_canon=c, beats=beat_sheet(3, entities_present=[]))
+
+    assert a.cached_prefix == b.cached_prefix

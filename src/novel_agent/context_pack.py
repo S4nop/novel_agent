@@ -206,6 +206,29 @@ class ContextPackBuilder:
 
         blocks.append(self._render_beatsheet(bs))
 
+        # The stable prefix carries the MAIN cast's voices only. A supporting
+        # character's 종결어미 and 말버릇 therefore never reached the drafter,
+        # while the craft judge reads the whole canon — measured twice, with
+        # "노준서의 확정된 버릇이 그의 유일한 등장 장면에서 한 번도 나오지
+        # 않는다" and characters no longer separable by dialogue alone. Here and
+        # not in the prefix because it is per-episode: putting it there would
+        # bust the prompt cache every episode and grow with the whole cast.
+        voices = ["## 이번 화 등장 조연 — 말투"]
+        for name in bs.entities_present:
+            card = canon.characters.get(name)
+            if card is None or card.is_main_cast:
+                continue
+            v = card.voice
+            bits = [b for b in (v.speech_register, v.honorific_pattern) if b]
+            if v.speech_tics:
+                bits.append("말버릇: " + ", ".join(v.speech_tics))
+            if v.exemplar_lines:
+                bits.append(f'예시 "{v.exemplar_lines[0]}"')
+            if bits:
+                voices.append(f"- {name}: " + " / ".join(bits))
+        if len(voices) > 1:
+            blocks.append("\n".join(voices))
+
         due = foreshadow.due(current_episode)
         if due:
             fl = ["## 이번 화에서 회수해야 할 떡밥"]
