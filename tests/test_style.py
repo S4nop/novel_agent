@@ -286,3 +286,70 @@ class TestDialogueBalance:
                             "봉출은 골목 끝까지 걸었다. 담벼락에 붙은 방이 바람에 떨렸다. "
                             "그는 종이를 뜯어 주머니에 넣었다."] * 20)
         assert "지문 부족(대사 과다)" not in _rules(text)
+
+
+# ── 금기어 추출: what two live runs actually produced ────────────────────────
+# Real strings from data/arc-v7 and data/clean-v6. The console printed 20 and 17
+# "terms", most of them unmatchable sentence fragments.
+
+def test_an_example_inside_parentheses_survives_as_its_own_term():
+    """The comma inside "(예: 상평통보 코인, ...)" split the sentence mid-paren,
+    yielding "…합성 신조어(예: 상평통보 코인" — unbalanced, unmatchable, and the
+    one real banned coinage in there was lost inside it."""
+    terms = forbidden_terms_from(anti_patterns=[
+        "조선어+기술어를 억지로 붙인 합성 신조어(예: 상평통보 코인, 넙적패드 류)"])
+    assert "상평통보 코인" in terms
+    assert not any("(" in t or ")" in t for t in terms)
+
+
+def test_a_verb_ending_in_geona_is_not_split_as_a_list_joiner():
+    """`-거나` is a connective, not the particle `나` that joins list items.
+    Splitting there produced the fragment "…직접 설명하거"."""
+    terms = forbidden_terms_from(anti_patterns=[
+        "'홍길동' 모티프를 대사로 직접 설명하거나 메타발언화하는 것"])
+    assert not any(t.endswith("하거") for t in terms)
+
+
+def test_a_described_failure_mode_is_not_offered_as_a_forbidden_word():
+    """These describe narrative mistakes; none can appear literally in prose, so
+    as blocker terms they are pure noise in the one list the reviser acts on."""
+    terms = forbidden_terms_from(anti_patterns=[
+        "빌런(기업 측)을 만화적 악행 나열로 단순화하는 것",
+        "차별과 이방인 소재를 감정 과잉의 신파로 해소",
+        "조정관의 승률 상승을 초능력적 먼치킨 파워토크로 정당화하는 것",
+    ])
+    assert terms == []
+
+
+def test_an_ordinary_word_is_never_mined_out_of_a_generated_anti_pattern():
+    """이방인·인종 차별을 … 신파로 처리 yielded 이방인 as a BLOCKER term — and
+    this novel's protagonist is an 이방인, so every episode would have failed on
+    its own premise. Generated genre prose is not the author's prohibition."""
+    terms = forbidden_terms_from(anti_patterns=[
+        "이방인·인종 차별을 눈물샘 자극형 신파로 처리"])
+    assert "이방인" not in terms
+
+
+def test_a_coinage_the_generated_list_spells_out_is_still_banned():
+    """An explicit example IS literal, whoever wrote it."""
+    terms = forbidden_terms_from(anti_patterns=[
+        "조선어+기술어를 억지로 붙인 신조어(예: 상평통보 코인, 넙적패드 류)"])
+    assert "상평통보 코인" in terms and "넙적패드" in terms
+
+
+def test_the_authors_own_words_are_mined_in_full():
+    """The blocker rule's whole justification is that the AUTHOR called it
+    non-negotiable, so their answer is read whole, not just its examples."""
+    terms = forbidden_terms_from(hard_rules=[
+        "조선어+기술어 합성 신조어, 유치한 과장과 슬랩스틱, 차별을 다루는 신파"])
+    assert terms == sorted(
+        ["조선어+기술어 합성 신조어", "유치한 과장과 슬랩스틱", "차별을 다루는 신파"],
+        key=len, reverse=True)
+
+
+def test_a_real_coinage_ban_still_produces_its_term():
+    """The rule has to keep doing its job — this is the author's hard rule from
+    data/answers.json."""
+    terms = forbidden_terms_from(hard_rules=[
+        "조선어+기술어 합성 신조어, 유치한 과장과 슬랩스틱"])
+    assert "조선어+기술어 합성 신조어" in terms or "합성 신조어" in terms

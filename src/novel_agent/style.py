@@ -453,6 +453,28 @@ _TERM_NOISE = {"금지", "없음", "없다", "없이", "제외", "그리고", "�
 _TRAILING_PARTICLE = re.compile(r"(?:이나|이랑|과|와|은|는|이|가|을|를|도|의|에|나)$")
 # A prohibition can also be stated as a trailing noun ("암호화폐 금지").
 _TRAILING_BAN_NOUN = re.compile(r"\s*(?:금지|제외|불가|배제|안됨|안\s*됨|미등장)\s*$")
+# A DESCRIBED failure mode, not a word. "빌런을 만화적 악행 나열로 단순화하는 것"
+# cannot appear literally in prose, so as a blocker term it is pure noise in the
+# one message the reviser acts on. Two live runs printed 20 and 17 "terms", most
+# of them this. A real ban is a name or a coinage, and short.
+_DESCRIBED_FAILURE = re.compile(
+    r"(?:하는\s*것|해소|처리|정당화|단순화|남발|연출|전개|서술|묘사|해결|"
+    r"설명|사용하는\s*것|만드는\s*것)\s*$")
+_MAX_TERM_CHARS = 14        # 상평통보 코인 = 7, 생체 데이터 = 6
+# "(예: 상평통보 코인, 넙적패드 류)" is a list of the real bans and has to be
+# split open; "빌런(기업 측)을" is a gloss, and splitting it produced 빌런 and
+# 기업 측 as blocker terms — ordinary words that would flag innocent prose.
+_EXAMPLE_PAREN = re.compile(r"[(（]\s*(?:예시?|ex)\s*[:：]?\s*([^)）]*)[)）]")
+_GLOSS_PAREN = re.compile(r"\s*[(（][^)）]*[)）]")
+# A clause describes a narrative mistake; a term names a thing. "이방인·인종
+# 차별을 눈물샘 자극형 신파로 처리" is the former and yielded 이방인 as a blocker
+# for a novel whose protagonist is one. "회귀, 환생" is the latter and is a real
+# ban. The object/adverbial particle before a space is what separates them.
+_IS_CLAUSE = re.compile(r"[을를]\s|[가-힣]로\s|하는\s*것|하기\s")
+
+
+def _is_description(term: str) -> bool:
+    return bool(_DESCRIBED_FAILURE.search(term)) or len(term) > _MAX_TERM_CHARS
 
 
 def _clean_term(chunk: str) -> str:
@@ -476,19 +498,36 @@ def forbidden_terms_from(hard_rules: list[str] | None = None,
     "암호화폐 금지". Multi-word phrases stay intact ("생체 데이터" is one term) —
     splitting to bare nouns would make 데이터 flag innocent modern prose.
     """
+    # The author's answers are mined whole — the rule's justification is that
+    # THEY called something non-negotiable. A generated anti-pattern is mined
+    # only if it names a thing rather than describing a mistake; a described
+    # one contributes just the coinages it spells out. Mining those whole
+    # produced 이방인 as a blocker for a novel whose protagonist is one, so
+    # every episode would have failed on its own premise.
+    sources = list(hard_rules or [])
+    for raw in anti_patterns or []:
+        sources += [m.group(1) for m in _EXAMPLE_PAREN.finditer(raw or "")]
+        if not _IS_CLAUSE.search(raw or ""):
+            sources.append(raw)
+
     terms: list[str] = []
-    for raw in list(hard_rules or []) + list(anti_patterns or []):
+    for raw in sources:
         for sentence in re.split(r"[.\n]", raw or ""):
-            head = _CATEGORY_MARKERS.sub("", sentence.strip())
+            head = _EXAMPLE_PAREN.sub(r", \1", sentence.strip())
+            head = _GLOSS_PAREN.sub("", head)
+            head = _CATEGORY_MARKERS.sub("", head)
             # `이나`/`나` also join list items, often with no leading space
             # ("환생이나 회귀") — split there too or both nouns fuse into one term.
             for chunk in re.split(
-                    r"[,،、/·]|\s+및\s+|\s+또는\s+|(?<=[가-힣])이나\s+"
+                    r"[,،、/·]|\s+및\s+|\s+또는\s+"
+                    r"|(?<=[가-힣])이나\s+"
                     # bare `나` joins too ("데이터나 칩"); require 2 syllables
-                    # before it so ordinary words like 하나/어쩌나 do not split
-                    r"|(?<=[가-힣]{2})나\s+", head):
+                    # before it so ordinary words like 하나/어쩌나 do not split,
+                    # and never after 거 — `-거나` is a verb connective, which
+                    # is how "직접 설명하거" ended up in a live 금기어 list.
+                    r"|(?<=[가-힣]{2})(?<!거)나\s+", head):
                 t = _clean_term(chunk)
-                if len(t) >= 2 and t not in _TERM_NOISE:
+                if len(t) >= 2 and t not in _TERM_NOISE and not _is_description(t):
                     terms.append(t)
     # dedupe, longest first so the most specific term is reported as evidence
     return sorted(dict.fromkeys(terms), key=len, reverse=True)
