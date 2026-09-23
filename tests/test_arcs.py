@@ -335,3 +335,22 @@ def test_an_explicit_length_still_wins_over_the_plan():
     llm = _beats_llm()
     _plan_ep(llm, am, episode=2, total=44)
     assert "총 44화" in llm.prompts[-1]
+
+
+def test_the_arc_planner_is_shown_what_each_character_can_actually_do():
+    """Given names alone it assigned a 30-episode structural role to the wrong
+    character: canon had 최도식 holding the opposing company's legal mandate and
+    유겸 holding the stamp, and the plan made 최도식 the one who withholds the
+    stamp. The drafter followed the plan and Track A blocked every episode."""
+    from novel_agent.artifacts import CharacterCard
+
+    cast = canon()
+    cast.characters["최도식"] = CharacterCard(
+        name="최도식", power_level="상단의 법무 대리권만 보유, 무공 없음",
+        immutable_descriptors=["왼팔이 의체"])
+    llm = ScriptedLLM(_draft())
+    plan_arcs(llm, north_star=north_star(), profile=genre_profile(),
+              canon=cast, total_episodes=30)
+    sent = llm.prompts[-1]
+    assert "상단의 법무 대리권" in sent
+    assert "왼팔이 의체" in sent

@@ -297,6 +297,22 @@ def _arc_line(arc_map: ArcMap, arc: Arc | None, episode: int) -> str:
     return " · ".join(parts)
 
 
+def _cast_roles(canon: Canon) -> str:
+    """The cast with what each of them can actually do.
+
+    Names alone were enough for the arc planner to hand a 30-episode structural
+    role to the wrong character — canon had one holding the opposing company's
+    legal mandate and another holding the stamp, and the plan swapped them. The
+    drafter follows the plan, and Track A then blocks every episode.
+    """
+    lines = []
+    for name, card in canon.characters.items():
+        bits = [b for b in (", ".join(card.immutable_descriptors),
+                            card.power_level) if b]
+        lines.append(f"- {name}: " + " · ".join(bits) if bits else f"- {name}")
+    return "\n".join(lines) or "미정"
+
+
 def plan_arcs(llm: LLM, *, north_star: NorthStar, profile: GenreProfile,
               canon: Canon, total_episodes: int) -> ArcMap:
     """L2 ArcPlanner — the overall picture, built once before episode 1.
@@ -317,7 +333,7 @@ def plan_arcs(llm: LLM, *, north_star: NorthStar, profile: GenreProfile,
                 hard_rules="; ".join(north_star.hard_rules) or "없음",
                 sub_genre=profile.sub_genre,
                 catharsis_cadence=profile.target_catharsis_cadence,
-                cast=", ".join(canon.characters) or "미정",
+                cast=_cast_roles(canon),
                 total_episodes=total_episodes)},
         ],
         ArcMapDraft,
