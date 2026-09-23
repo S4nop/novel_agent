@@ -31,7 +31,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
                      "catharsis_cadence", "max_frustration", "forbidden", "arc_line",
                      "central_twist", "cast", "story_so_far", "pacing_directive",
                      "due_seeds", "episode_number", "closing_rule",
-                     "ripening_seeds", "total_episodes"),
+                     "ripening_seeds", "total_episodes", "planned_threads"),
     "closing_rule_serial": (),
     "closing_rule_final": (),
     "arc_plan": ("premise", "core_conflict", "episode_engine", "central_twist",

@@ -167,6 +167,7 @@ class PlannedSeed(BaseModel):
     description: str
     magnitude: SeedMagnitude = SeedMagnitude.MINOR
     due_by_ep: int | None = None
+    planned_thread_id: str = ""                    # drawn from the ArcMap, if any
 
 
 class BeatSheet(BaseModel):

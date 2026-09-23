@@ -251,6 +251,34 @@ def effective_arc_map(stored: ArcMap | None, llm: LLM,
     return stored if stored is not None else seed_arc_map(llm, north_star)
 
 
+def unplanted_threads(arc_map: ArcMap) -> list[PlannedThread]:
+    """Threads the plan calls for that the serial has not thrown yet.
+
+    All of them, not just the current arc's: a spine thread has to be in the
+    water long before the arc that closes it, which is the whole reason the
+    plan exists.
+    """
+    return sorted((t for t in arc_map.threads if not t.planted_as),
+                  key=lambda t: t.pays_off_in_arc)
+
+
+def _thread_line(arc_map: ArcMap, thread: PlannedThread) -> str:
+    idx = min(max(thread.pays_off_in_arc, 1), len(arc_map.arcs)) - 1
+    arc = arc_map.arcs[idx] if arc_map.arcs else None
+    where = f"{idx + 1}부({arc.start_ep}-{arc.end_ep}화)" if arc else "미정"
+    return (f"- [{thread.thread_id}] ({thread.magnitude.value}) "
+            f"{thread.description} → {where}에서 회수")
+
+
+def _thread_arc_end(arc_map: ArcMap, thread_id: str) -> int | None:
+    """The last episode of the arc that pays a planned thread off."""
+    thread = next((t for t in arc_map.threads if t.thread_id == thread_id), None)
+    if thread is None or not arc_map.arcs:
+        return None
+    idx = min(max(thread.pays_off_in_arc, 1), len(arc_map.arcs)) - 1
+    return arc_map.arcs[idx].end_ep
+
+
 def _arc_line(arc_map: ArcMap, arc: Arc | None, episode: int) -> str:
     """The current arc as ONE pre-formatted line.
 
@@ -355,17 +383,34 @@ def _magnitude(raw: str) -> SeedMagnitude:
 
 
 def _seed_deadline(raw: int | None, magnitude: SeedMagnitude, episode: int,
-                   total: int | None, cadence: int) -> int | None:
+                   total: int | None, cadence: int,
+                   arc_end: int | None = None) -> int | None:
     """The episode a planted seed must be paid by, or None for an open minor.
 
     A deadline at or before the episode that plants the seed makes it overdue
     the moment it appears, so it is pushed out rather than honoured.
     """
+    if arc_end:
+        # Drawn from the plan: the arc that closes the thread IS the horizon,
+        # so the number stops being a guess. Used as a clamp and not a value —
+        # stamping every thread of an arc with that arc's end would have them
+        # all come due, and all ripen, in the same episode.
+        return raw if raw and episode < raw <= arc_end else max(arc_end, episode + 1)
     if raw and raw > episode:
         return raw
     if magnitude is not SeedMagnitude.MAJOR:
         return None
     return max(total or (episode + max(1, cadence) * 3), episode + 1)
+
+
+def _known_thread(arc_map: ArcMap, seed) -> str:
+    """The plan thread a seed claims, or "" — a hallucinated id binds nothing.
+
+    The seed is still planted: dropping the episode's 떡밥 over a bad id would
+    be worse than losing the binding.
+    """
+    raw = (seed.planned_thread_id or "").strip().strip("[]()<>").strip().lower()
+    return next((t.thread_id for t in arc_map.threads if t.thread_id.lower() == raw), "")
 
 
 def _resolve_seed_ids(raw: list[str], foreshadow: ForeshadowLedger) -> list[str]:
@@ -474,6 +519,9 @@ def plan_episode(
                                         for x in due) or "없음"),
                 closing_rule=render(
                     "closing_rule_final" if is_final else "closing_rule_serial"),
+                planned_threads=(chr(10).join(
+                    _thread_line(arc_map, t) for t in unplanted_threads(arc_map))
+                    or "없음"),
                 ripening_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
                                              for x in foreshadow.ripening(episode_number))
                                 or "없음"),
@@ -504,7 +552,9 @@ def plan_episode(
                 # deciding how long the spine may stay open.
                 due_by_ep=_seed_deadline(
                     s.due_by_ep, _magnitude(s.magnitude), episode_number,
-                    total_episodes, profile.target_catharsis_cadence),
+                    total_episodes, profile.target_catharsis_cadence,
+                    arc_end=_thread_arc_end(arc_map, _known_thread(arc_map, s))),
+                planned_thread_id=_known_thread(arc_map, s),
             )
             for i, s in enumerate(draft.seeds_to_plant, 1)
         ],

@@ -104,6 +104,10 @@ class SeedDraft(BaseModel):
     description: str
     magnitude: str = Field(description="major | minor")
     due_by_ep: int = Field(description="몇 화까지 회수할 것인가 (0이면 미정)")
+    planned_thread_id: str = Field(
+        default="",
+        description="[계획된 떡밥]에서 가져온 것이면 그 ID(thread-01 형태). "
+                    "이 화에서 새로 지어낸 떡밥이면 빈 문자열.")
 
 
 class BeatSheetDraft(BaseModel):

@@ -236,3 +236,85 @@ def test_an_explicit_flag_wins_but_says_so_when_it_contradicts_the_plan():
 def test_no_flag_and_no_plan_falls_back_to_the_default_length():
     from novel_agent.driver import RunConfig, resolve_target_episodes
     assert resolve_target_episodes(None, None) == (RunConfig().target_episodes, "")
+
+
+# ── drawing a 떡밥 down from the plan instead of inventing one ───────────────
+def _seed_llm(thread_id="", due=0, magnitude="major"):
+    from novel_agent.schemas import BeatDraft, BeatSheetDraft, SeedDraft
+    return ScriptedLLM(BeatSheetDraft(
+        opening_hook="h", the_one_progression="p", closing_cliffhanger="c",
+        entities_present=[], beats=[BeatDraft(text="b", beat_type="payoff")],
+        seeds_to_plant=[SeedDraft(description="심는다", magnitude=magnitude,
+                                  due_by_ep=due, planned_thread_id=thread_id)]))
+
+
+def test_the_planner_is_shown_the_threads_the_plan_says_the_story_needs():
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 3),))))
+    llm = _seed_llm()
+    _plan_ep(llm, am, episode=2)
+    sent = llm.prompts[-1]
+    assert "[thread-01]" in sent and "검왕의 정체" in sent
+
+
+def test_a_thread_already_planted_is_not_offered_again():
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 3),))))
+    am.threads[0].planted_as = "seed-0001"
+    llm = _seed_llm()
+    _plan_ep(llm, am, episode=2)
+    assert "[thread-01]" not in llm.prompts[-1]
+
+
+def test_a_seed_drawn_from_the_plan_is_due_by_the_arc_that_pays_it_off():
+    """The horizon stops being a guess: the plan already says which arc closes
+    this thread, so its deadline is that arc's last episode."""
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 2),))))
+    bs = _plan_ep(_seed_llm(thread_id="thread-01"), am, episode=2)
+    assert bs.seeds_to_plant[0].due_by_ep == am.arcs[1].end_ep        # 20
+
+
+def test_the_planners_own_date_survives_when_it_lands_inside_that_arc():
+    """Stamping every thread of an arc with the same end would have them all
+    come due — and ripen — in the same episode."""
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 2),))))
+    bs = _plan_ep(_seed_llm(thread_id="thread-01", due=17), am, episode=2)
+    assert bs.seeds_to_plant[0].due_by_ep == 17
+
+
+def test_a_date_outside_the_paying_arc_is_pulled_back_to_it():
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 2),))))
+    bs = _plan_ep(_seed_llm(thread_id="thread-01", due=29), am, episode=2)
+    assert bs.seeds_to_plant[0].due_by_ep == am.arcs[1].end_ep
+
+
+def test_a_hallucinated_thread_id_does_not_bind_the_seed_to_an_arc():
+    """The seed is still planted — dropping the author's episode over a bad id
+    would be worse than losing the binding."""
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 2),))))
+    bs = _plan_ep(_seed_llm(thread_id="thread-99"), am, episode=2)
+    assert len(bs.seeds_to_plant) == 1
+    assert bs.seeds_to_plant[0].planned_thread_id == ""
+
+
+def test_an_adhoc_seed_outside_the_plan_still_gets_the_old_floor():
+    """A MAJOR with no deadline is unpayable — invisible to due() but counted
+    by unpaid_major() forever, so completion_ready() never turns True."""
+    am = _plan(ScriptedLLM(_draft(threads=())))
+    bs = _plan_ep(_seed_llm(), am, episode=2, total=30)
+    assert bs.seeds_to_plant[0].due_by_ep == 30
+
+
+def test_planting_a_planned_thread_records_which_seed_it_became(tmp_path):
+    """Otherwise 'not yet planted' can only be answered by fuzzy-matching
+    LLM-rewritten Korean prose."""
+    from novel_agent.artifacts import Draft
+    from novel_agent.canonicalizer import commit_episode_state
+
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 2),))))
+    store = _store(tmp_path, arc_map=am)
+    beats = _plan_ep(_seed_llm(thread_id="thread-01"), am, episode=1)
+
+    commit_episode_state(store, Draft(episode_number=1, prose="1화"), beats)
+
+    thread = store.load_arc_map().threads[0]
+    assert thread.planted_as == "seed-0001"
+    assert store.load_foreshadow().seeds["seed-0001"].description == "심는다"

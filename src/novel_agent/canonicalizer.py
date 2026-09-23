@@ -61,8 +61,19 @@ def commit_episode_state(
 
     # 2) foreshadow — mint canonical ids for planted seeds, mark paid ones
     ledger: ForeshadowLedger = store.load_foreshadow()
+    # Recording which seed a planned thread became is what makes "not yet
+    # planted" a lookup instead of fuzzy-matching rewritten Korean prose.
+    arc_map = store.load_arc_map()
+    by_thread = {t.thread_id: t for t in arc_map.threads} if arc_map else {}
+    touched = False
     for planned in beats.seeds_to_plant:
-        ledger.plant(planned, episode=beats.episode_number)
+        seed = ledger.plant(planned, episode=beats.episode_number)
+        thread = by_thread.get(planned.planned_thread_id)
+        if thread is not None and not thread.planted_as:
+            thread.planted_as = seed.seed_id
+            touched = True
+    if touched:
+        store.save_arc_map(arc_map)
     # 흔들기 before 회수: reinforce() had no caller anywhere, so reinforced_in
     # was structurally always empty and a 떡밥 went straight from planted to
     # paid with nothing in between.
