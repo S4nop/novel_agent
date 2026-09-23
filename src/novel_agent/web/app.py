@@ -37,6 +37,7 @@ from ..nodes import (
     generate_northstar_candidates,
     infer_genre_profile,
     init_canon_and_voice,
+    plan_arcs,
     plan_episode,
     effective_arc_map,
     to_north_star,
@@ -132,6 +133,9 @@ class AnswersIn(BaseModel):
 
 class LockIn(BaseModel):
     pick: int = 1
+    # The arc plan divides this many episodes, so it has to be decided at the
+    # premise gate rather than when the serial is launched.
+    total_episodes: int = 30
 
 
 class PromptIn(BaseModel):
@@ -140,6 +144,10 @@ class PromptIn(BaseModel):
 
 class CanonIn(BaseModel):
     canon: dict
+
+
+class ArcMapIn(BaseModel):
+    arc_map: dict
 
 
 class LintIn(BaseModel):
@@ -262,6 +270,39 @@ def canon_put(pid: str, body: CanonIn):
 
 
 # ── pipeline ─────────────────────────────────────────────────────────────────
+@app.get("/api/projects/{pid}/arcs")
+def arcs_get(pid: str):
+    plan = CanonStore(_dir(pid) / "_novel").load_arc_map()
+    if plan is None:
+        raise HTTPException(400, "아직 아크 계획이 없습니다 — 전제를 먼저 확정하세요")
+    return plan.model_dump(mode="json")
+
+
+@app.put("/api/projects/{pid}/arcs")
+def arcs_put(pid: str, body: ArcMapIn):
+    """Hand-edit the arc plan. This decides more about the story than the canon
+    does, so the author has the last word on it before episode 1."""
+    from ..artifacts import ArcMap
+    from ..nodes import arc_span_problems
+
+    store = CanonStore(_dir(pid) / "_novel")
+    try:
+        plan = ArcMap.model_validate(body.arc_map)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"아크 계획 형식이 올바르지 않습니다: {str(e)[:300]}") from e
+    problems = arc_span_problems(plan)
+    if problems:
+        raise HTTPException(400, "화 구간이 이어지지 않습니다 — " + " / ".join(problems))
+    previous = store.load_arc_map()
+    plan.version = (previous.version if previous else 0) + 1
+    plan.last_modified_by = "author"
+    store.save_arc_map(plan)
+    state = _load(pid)
+    state["arc_map"] = plan.model_dump(mode="json")
+    _save(pid, state)
+    return state["arc_map"]
+
+
 @app.get("/api/projects")
 def list_projects():
     out = []
@@ -346,13 +387,19 @@ def lock(pid: str, body: LockIn):
         chosen = NorthStarDraft.model_validate(state["candidates"][body.pick - 1])
         ns = to_north_star(chosen, profile)
         canon, voice = init_canon_and_voice(llm, idea, profile, ns)
+        # L2 — arcs after canon, so they can name the cast. This is what makes
+        # 떡밥 derivable from a picture instead of improvised per episode.
+        arc_map = plan_arcs(llm, north_star=ns, profile=profile, canon=canon,
+                            total_episodes=body.total_episodes)
 
         CanonStore(_dir(pid) / "_novel").initialize(
-            genre_profile=profile, north_star=ns, canon=canon, voice_bible=voice)
+            genre_profile=profile, north_star=ns, canon=canon, voice_bible=voice,
+            arc_map=arc_map)
         state["picked"] = body.pick
         state["north_star"] = ns.model_dump(mode="json")
         state["canon"] = canon.model_dump(mode="json")
         state["voice"] = voice.model_dump(mode="json")
+        state["arc_map"] = arc_map.model_dump(mode="json")
         state["step"] = "locked"
         _record_usage(state, usage)
         _save(pid, state)

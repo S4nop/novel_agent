@@ -215,6 +215,31 @@ def arc_for_episode(arc_map: ArcMap, episode: int) -> Arc | None:
 _DETAILED_ARCS = 2          # current + next, per DESIGN §L2
 
 
+def arc_span_problems(arc_map: ArcMap) -> list[str]:
+    """Readable Korean reasons an arc plan does not cover its serial, or [].
+
+    A hole means arc_for_episode falls through mid-serial and the planner
+    silently loses its picture, so a hand edit is checked at the moment it is
+    made rather than discovered 12 episodes later.
+    """
+    if not arc_map.arcs:
+        return ["부(arc)가 하나도 없습니다"]
+    problems = []
+    cursor = 1
+    for i, arc in enumerate(arc_map.arcs, 1):
+        if arc.start_ep != cursor:
+            problems.append(
+                f"{i}부가 {arc.start_ep}화에서 시작합니다 — {cursor}화여야 이어집니다")
+        if arc.end_ep < arc.start_ep:
+            problems.append(f"{i}부의 끝({arc.end_ep})이 시작({arc.start_ep})보다 앞섭니다")
+        cursor = max(cursor, arc.end_ep + 1)
+    total = arc_map.total_episodes
+    if total and arc_map.arcs[-1].end_ep != total:
+        problems.append(
+            f"마지막 부가 {arc_map.arcs[-1].end_ep}화에서 끝납니다 — 총 {total}화입니다")
+    return problems
+
+
 def effective_arc_map(stored: ArcMap | None, llm: LLM,
                       north_star: NorthStar) -> ArcMap:
     """The serial's plan, or the pre-L2 stub for a store that has none.

@@ -32,6 +32,7 @@ from novel_agent.nodes import (  # noqa: E402
     init_canon_and_voice,
     plan_episode,
     effective_arc_map,
+    plan_arcs,
     to_north_star,
 )
 
@@ -49,6 +50,8 @@ def main() -> None:
                     help="JSON file of prior interview answers [{topic, answer}] — "
                          "replays a completed interview without re-asking")
     ap.add_argument("--questions", type=int, default=10)
+    ap.add_argument("--episodes", type=int, default=30,
+                    help="연재 총 화수 — 아크 계획이 이 길이를 나눕니다")
     a = ap.parse_args()
 
     out = pathlib.Path(a.out)
@@ -138,13 +141,33 @@ def main() -> None:
     print(f"  용어: {[(g.term, g.canonical_form) for g in canon.glossary]}")
     print(f"  문체: {voice.spec}")
 
+    # L2 — after canon so the arcs can name the cast. This is the picture a
+    # 떡밥 is derived from; without it the planner improvises threads with no
+    # idea where the story goes, and their deadlines can only be guesses.
+    arc_map = plan_arcs(llm, north_star=north_star, profile=profile, canon=canon,
+                        total_episodes=a.episodes)
+    print(f"\n■ L2 아크 계획 — 총 {a.episodes}화")
+    for i, arc in enumerate(arc_map.arcs, 1):
+        print(f"  [{i}부] {arc.start_ep}-{arc.end_ep}화 · {arc.goal}")
+        if arc.climax:
+            print(f"        클라이맥스: {arc.climax}")
+        if arc.payoff:
+            print(f"        보상: {arc.payoff}")
+    print(f"  떡밥 {len(arc_map.threads)}건")
+    for t in arc_map.threads:
+        print(f"    · [{t.magnitude.value}] {t.description} → {t.pays_off_in_arc}부에서 회수")
+
     store = CanonStore(out / "_novel")
-    store.initialize(genre_profile=profile, north_star=north_star, canon=canon, voice_bible=voice)
+    store.initialize(genre_profile=profile, north_star=north_star, canon=canon,
+                     voice_bible=voice, arc_map=arc_map)
     # Canon is the source of truth for every later episode, so the author has to
     # be able to correct it. The console has an editor; on the CLI the file is
     # the editor — but nothing said so, so nobody knew (coworker review 2).
     print(f"\n■ 캐논 파일: {out/'_novel'/'canon.json'}")
-    print("   → 이름·외형·말투·용어가 마음에 안 들면 이 파일을 직접 고치세요.")
+    print(f"■ 아크 계획: {out/'_novel'/'arc_map.json'}")
+    print("   → 아크 계획은 캐논보다 이야기를 더 많이 결정합니다. 먼저 읽어보세요.")
+    print("   → 부 구간은 1화부터 마지막 화까지 빈틈없이 이어져야 합니다.")
+    print("   → 이름·외형·말투·용어가 마음에 안 들면 캐논 파일을 직접 고치세요.")
     print("   → --draft 없이 실행했다면 지금 고치고 scripts/run_serial.py 로 집필하세요.")
     print("   → 웹 콘솔(python -m novel_agent.web)에는 캐논 편집 화면이 있습니다.")
 

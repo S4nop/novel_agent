@@ -245,3 +245,118 @@ def test_malformed_canon_is_rejected_and_the_old_one_survives(client):
 def test_canon_read_requires_setup_first(client):
     pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
     assert client.get(f"/api/projects/{pid}/canon").status_code == 400
+
+
+# ── the arc plan is the author's too (L2 gate) ──────────────────────────────
+def _seed_arcs(pid, total=30):
+    from novel_agent.artifacts import Arc, ArcMap, PlannedThread
+    store = _seed_canon(pid)
+    store.save_arc_map(ArcMap(
+        total_episodes=total,
+        arcs=[Arc(goal="1부 목표", climax="1부 클라이맥스", start_ep=1, end_ep=15,
+                  detailed=True),
+              Arc(goal="2부 목표", start_ep=16, end_ep=total)],
+        threads=[PlannedThread(thread_id="thread-01", description="검왕의 정체",
+                               pays_off_in_arc=2)]))
+    return store
+
+
+def test_the_arc_plan_can_be_read_back(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_arcs(pid)
+    plan = client.get(f"/api/projects/{pid}/arcs").json()
+    assert [a["goal"] for a in plan["arcs"]] == ["1부 목표", "2부 목표"]
+    assert plan["threads"][0]["thread_id"] == "thread-01"
+
+
+def test_author_can_hand_edit_the_arc_plan(client):
+    """The plan decides more about the story than the canon does, so the author
+    has to be able to correct it before episode 1."""
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_arcs(pid)
+    plan = client.get(f"/api/projects/{pid}/arcs").json()
+    plan["arcs"][0]["climax"] = "작가가 정한 클라이맥스"
+
+    r = client.put(f"/api/projects/{pid}/arcs", json={"arc_map": plan})
+    assert r.status_code == 200
+    saved = store.load_arc_map()
+    assert saved.arcs[0].climax == "작가가 정한 클라이맥스"
+    assert saved.version == 2
+    assert saved.last_modified_by == "author"
+
+
+def test_an_edit_that_leaves_an_episode_without_an_arc_is_rejected(client):
+    """A hole means arc_for_episode falls through mid-serial and the planner
+    silently loses its picture — cheap to catch at the moment of editing."""
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_arcs(pid)
+    plan = client.get(f"/api/projects/{pid}/arcs").json()
+    plan["arcs"][0]["end_ep"] = 10               # 11-15 now belongs to nobody
+
+    r = client.put(f"/api/projects/{pid}/arcs", json={"arc_map": plan})
+    assert r.status_code == 400
+    assert store.load_arc_map().arcs[0].end_ep == 15      # old plan survives
+
+
+def test_the_arc_plan_read_requires_a_plan_to_exist(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_canon(pid)
+    assert client.get(f"/api/projects/{pid}/arcs").status_code == 400
+
+
+def test_locking_a_premise_in_the_console_also_produces_an_arc_plan(client, monkeypatch):
+    """The console is how the author actually drives this. Without an arc plan
+    here, every console project keeps the pre-L2 stub and the arc panel has
+    nothing to show."""
+    from novel_agent.canon_store import CanonStore
+    from novel_agent.schemas import (
+        ArcDraft, ArcMapDraft, CanonInitDraft, GenreProfileDraft,
+        NorthStarDraft, PlannedThreadDraft,
+    )
+
+    class FakeLLM:
+        usage = None
+
+        def structured(self, messages, schema):
+            if schema is GenreProfileDraft:
+                return GenreProfileDraft(
+                    audience="성인", content_rating="15+", sub_genre="사극",
+                    trope_checklist=[], pov="3인칭", tense="과거",
+                    register_baseline="평어", target_catharsis_cadence=3,
+                    max_consecutive_frustration_beats=2,
+                    forbidden_anti_patterns=[], inference_notes="n")
+            if schema is NorthStarDraft:
+                return NorthStarDraft(
+                    title="제목", premise="전제", core_conflict="갈등",
+                    protagonist_edge="엣지", episode_engine="엔진",
+                    central_twist="반전", intended_ending="결말",
+                    power_system="없음", hard_rules=[])
+            if schema is CanonInitDraft:
+                return CanonInitDraft(characters=[], hard_world_rules=[],
+                                      soft_world_rules=[], glossary=[],
+                                      voice_spec="문체", voice_exemplars=["예문"])
+            if schema is ArcMapDraft:
+                return ArcMapDraft(
+                    arcs=[ArcDraft(goal="1부", climax="c1", payoff="p1",
+                                   start_ep=1, end_ep=8),
+                          ArcDraft(goal="2부", climax="c2", payoff="p2",
+                                   start_ep=9, end_ep=16)],
+                    threads=[PlannedThreadDraft(description="정체", magnitude="major",
+                                                pays_off_in_arc=2)])
+            raise AssertionError(schema)
+
+        def text(self, messages, *, max_tokens=8192):  # pragma: no cover
+            raise NotImplementedError
+
+    monkeypatch.setattr(web, "build_llm", lambda *a, **k: FakeLLM())
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    client.post(f"/api/projects/{pid}/setup")
+
+    r = client.post(f"/api/projects/{pid}/lock", json={"pick": 1, "total_episodes": 16})
+    assert r.status_code == 200
+
+    plan = CanonStore(web._root() / pid / "_novel").load_arc_map()
+    assert plan is not None
+    assert plan.total_episodes == 16
+    assert plan.arcs[-1].end_ep == 16
+    assert [t.thread_id for t in plan.threads] == ["thread-01"]

@@ -82,7 +82,10 @@
       <button onclick="setup()" id="bSetup" disabled>L0 추론 + 후보 3개 생성</button>
       <div id="profile" style="margin-top:10px"></div>
       <div id="cands" style="margin-top:10px"></div>
-      <button onclick="lock()" id="bLock" disabled style="display:none">선택한 전제로 캐논 생성</button>
+      <div class="row" id="lockBar" style="margin-top:10px;display:none">
+        <label class="k">총 화수 <input id="totalEps" type="number" value="30" min="1" style="width:64px"></label>
+        <button onclick="lock()" id="bLock" disabled>선택한 전제로 캐논 + 아크 계획 생성</button>
+      </div>
       <div class="row" id="canonBar" style="margin-top:10px;display:none">
         <button class="ghost" onclick="editCanon()" id="bEdit">캐논 직접 수정</button>
         <button class="ghost" onclick="saveCanon()" id="bSaveCanon" style="display:none">저장</button>
@@ -90,6 +93,15 @@
       </div>
       <div id="canon" style="margin-top:10px"></div>
       <textarea id="canonEdit" rows="18" class="mono" style="display:none;margin-top:10px"></textarea>
+
+      <div class="row" id="arcBar" style="margin-top:14px;display:none">
+        <strong class="k">아크 계획 — 떡밥은 여기서 나옵니다</strong>
+        <button class="ghost" onclick="editArcs()" id="bEditArcs">직접 수정</button>
+        <button class="ghost" onclick="saveArcs()" id="bSaveArcs" style="display:none">저장</button>
+        <span id="arcMsg" class="k"></span>
+      </div>
+      <div id="arcs" style="margin-top:10px"></div>
+      <textarea id="arcEdit" rows="18" class="mono" style="display:none;margin-top:10px"></textarea>
     </div>
 
     <div class="panel">
@@ -188,10 +200,12 @@ function applyState(st){
   $('#bEp').disabled = !(st.step==='locked'||st.step==='drafted');
   $('#bLock').style.display = st.candidates ? '' : 'none';
   $('#bLock').disabled = !st.candidates;
+  if(st.candidates) $('#lockBar').style.display='';
   if(st.questions){ QUESTIONS = st.questions; renderQuestions(); }
   if(st.profile) renderProfile(st);
   if(st.candidates) renderCandidates(st.candidates, st.picked||1);
   if(st.canon) renderCanon(st);
+  if(st.arc_map) renderArcs(st.arc_map);
   renderCost(st.usage);
 }
 function renderCost(u){
@@ -272,7 +286,8 @@ function renderCandidates(cs, picked){
 function pick(i){ PICK=i; document.querySelectorAll('.cand').forEach((e,n)=>e.classList.toggle('sel',n+1===i)); }
 async function lock(){
   busy('#bLock', true, 1);
-  try { applyState(await api(`/api/projects/${PID}/lock`,'POST',{pick:PICK})); log('전제 확정 + 캐논 생성'); }
+  try { applyState(await api(`/api/projects/${PID}/lock`,'POST',
+    {pick:PICK, total_episodes:+$('#totalEps').value})); log('전제 확정 + 캐논 + 아크 계획'); }
   catch(e){ log('실패: '+esc(e.message)); } finally { busy('#bLock', false, 1); }
 }
 function renderCanon(st){
@@ -284,6 +299,37 @@ function renderCanon(st){
   $('#canon').innerHTML = `<table>${chars}
     <tr><th>용어집</th><td>${esc((c.glossary||[]).map(g=>g.canonical_form).join(', '))} <span class="k">(${(c.glossary||[]).length}개)</span></td></tr>
     <tr><th>문체</th><td>${esc((v.spec||'').slice(0,240))}</td></tr></table>`;
+}
+
+// ── the arc plan: what every major 떡밥 is derived from ─────────────────────
+function renderArcs(m){
+  $('#arcBar').style.display='';
+  const arcs = (m.arcs||[]).map((a,i)=>
+    `<tr><th>${i+1}부 <span class="k">${a.start_ep}-${a.end_ep}화</span></th><td>${esc(a.goal)}
+     ${a.climax?`<br><span class="k">클라이맥스: ${esc(a.climax)}</span>`:''}
+     ${a.payoff?`<br><span class="k">보상: ${esc(a.payoff)}</span>`:''}</td></tr>`).join('');
+  const threads = (m.threads||[]).map(t=>
+    `<div><span class="pill ${t.magnitude==='major'?'warn':'dim'}">${esc(t.magnitude)}</span>
+     ${esc(t.description)} <span class="k">→ ${t.pays_off_in_arc}부에서 회수</span></div>`).join('');
+  $('#arcs').innerHTML = `<table>${arcs}</table>
+    <div style="margin-top:8px"><span class="k">떡밥 ${(m.threads||[]).length}건 · 총 ${m.total_episodes}화</span>${threads}</div>`;
+}
+async function editArcs(){
+  const m = await api(`/api/projects/${PID}/arcs`);
+  $('#arcEdit').value = JSON.stringify(m, null, 2);
+  $('#arcEdit').style.display=''; $('#arcs').style.display='none';
+  $('#bSaveArcs').style.display=''; $('#bEditArcs').style.display='none';
+  $('#arcMsg').textContent='부 구간은 1화부터 마지막 화까지 빈틈없이 이어져야 합니다.';
+}
+async function saveArcs(){
+  try{
+    const arc_map = JSON.parse($('#arcEdit').value);
+    const saved = await api(`/api/projects/${PID}/arcs`,'PUT',{arc_map});
+    $('#arcEdit').style.display='none'; $('#arcs').style.display='';
+    $('#bSaveArcs').style.display='none'; $('#bEditArcs').style.display='';
+    $('#arcMsg').innerHTML = `<span class="pill ok">저장됨 v${saved.version}</span>`;
+    renderArcs(saved); log('아크 계획 수정 저장 v'+saved.version);
+  }catch(e){ $('#arcMsg').innerHTML = `<span class="pill bad">저장 실패</span> ${esc(e.message)}`; }
 }
 
 // ── canon hand-editing (regeneration re-rolls the parts you liked) ──────────
