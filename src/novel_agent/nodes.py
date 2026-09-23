@@ -485,6 +485,10 @@ def plan_episode(
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
     arc = arc_for_episode(arc_map, episode_number)
+    # The plan already records the length it was built for. Requiring every
+    # call site to repeat it is how run_setup's preview ended up planned
+    # against "총 미정화" while the plan next to it said 30.
+    total_episodes = total_episodes or arc_map.total_episodes or None
     due = foreshadow.due(episode_number)
     if extra_directive:
         # Converging: the directive calls a MAJOR payoff mandatory, but this

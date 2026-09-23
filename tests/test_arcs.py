@@ -318,3 +318,20 @@ def test_planting_a_planned_thread_records_which_seed_it_became(tmp_path):
     thread = store.load_arc_map().threads[0]
     assert thread.planted_as == "seed-0001"
     assert store.load_foreshadow().seeds["seed-0001"].description == "심는다"
+
+
+def test_the_serial_length_falls_back_to_the_plan_when_a_caller_forgets_it():
+    """run_setup passed arc_map but not total_episodes, so its preview episode
+    was planned against "총 미정화". The plan already knows the length — every
+    call site should not have to remember to repeat it."""
+    am = _plan(ScriptedLLM(_draft()), total=30)
+    llm = _beats_llm()
+    _plan_ep(llm, am, episode=2, total=None)
+    assert "총 30화" in llm.prompts[-1]
+
+
+def test_an_explicit_length_still_wins_over_the_plan():
+    am = _plan(ScriptedLLM(_draft()), total=30)
+    llm = _beats_llm()
+    _plan_ep(llm, am, episode=2, total=44)
+    assert "총 44화" in llm.prompts[-1]

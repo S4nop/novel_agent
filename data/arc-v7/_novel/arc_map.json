@@ -1,0 +1,105 @@
+{
+  "arcs": [
+    {
+      "goal": "아산테가 말단 조정관으로 배정되어 첫 배상 사건들을 처리하며 계약서 허점을 짚어내는 실력을 증명하고, 연이은 승소로 '환생한 홍길동' 소문이 퍼지기 시작한다.",
+      "antagonist": "개별 상단들(단발성 등장, 매 화 교체)",
+      "climax": "박노미가 얽힌 상단의 악질 계약 사건에서 아산테가 결정적 조항을 짚어 상민 측이 대승하고, 관아 전체에 '홍길동' 별명이 공식 기록(몸소 부인함)으로 남는다.",
+      "payoff": "독자는 아산테의 조정 방식(계약서 정독, 절차주의)이 실제로 통한다는 확신을 얻고, 그가 '무공 없는 영웅'임을 체감한다.",
+      "ending_hook": "패소한 상단들이 연합하여 그를 표적으로 지목했다는 소문이 관아에 돈다.",
+      "start_ep": 1,
+      "end_ep": 8,
+      "detailed": true
+    },
+    {
+      "goal": "상단연합의 견제가 본격화되면서 계약서가 점점 정교해지고, 아산테는 관아 내 협력자 유겸의 존재를 의식하며 더 위험한 사건들에 투입된다.",
+      "antagonist": "상단연합(조직적 실체로 등장), 관아장 최도식의 정치적 이용",
+      "climax": "상단연합이 짜낸 함정 사건에서 아산테가 궁지에 몰리지만 유겸의 은밀한 조력으로 반전에 성공하고, 그 과정에서 유겸이 단순 동료가 아니라 무언가를 알고 있는 인물임이 암시된다.",
+      "payoff": "독자는 아산테가 혼자가 아니라는 안도감과 함께, 그의 배치가 우연이 아닐지도 모른다는 의혹의 실마리를 얻는다.",
+      "ending_hook": "최도식이 채무 해방 서류를 또다시 미루며, 아산테에게 '더 큰 사건'을 맡기겠다고 선언한다.",
+      "start_ep": 9,
+      "end_ep": 16,
+      "detailed": true
+    },
+    {
+      "goal": "관아 상층부의 정치 지형이 드러나며 아산테는 온건개혁파와 상단연합 사이의 힘겨루기 한복판에 놓이고, 자신이 이용당하고 있다는 의심이 확신으로 바뀐다.",
+      "antagonist": "",
+      "climax": "관아 내 협력자의 정체와 그가 배치된 진짜 이유가 드러나는 대형 사건.",
+      "payoff": "아산테가 자신의 위치와 소문의 실체를 완전히 이해하게 된다.",
+      "ending_hook": "",
+      "start_ep": 17,
+      "end_ep": 23,
+      "detailed": false
+    },
+    {
+      "goal": "도구로 이용되었음을 안 아산테가 스스로 판을 이어가기로 선택하고, 상단연합과의 최종 담판 및 채무 문제의 향방을 결정짓는다.",
+      "antagonist": "",
+      "climax": "상단연합과 관아 상층부가 동시에 개입하는 최대 규모의 배상 분쟁에서 아산테가 자신의 방식대로 판을 뒤집는다.",
+      "payoff": "독자는 아산테가 수단에서 주체로 전환하는 카타르시스를 얻고, 그간 쌓인 실들이 정리되는 만족감을 느낀다.",
+      "ending_hook": "",
+      "start_ep": 24,
+      "end_ep": 30,
+      "detailed": false
+    }
+  ],
+  "threads": [
+    {
+      "thread_id": "thread-01",
+      "description": "'홍길동'이라는 이름이 왜 불온서적과 엮여 금기시되는지, 그 실체와 유래",
+      "magnitude": "major",
+      "pays_off_in_arc": 4,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-02",
+      "description": "아산테를 하급 조정관으로 배치한 것이 온건개혁파가 상단연합을 견제하기 위해 심어둔 의도된 수였다는 진실",
+      "magnitude": "major",
+      "pays_off_in_arc": 3,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-03",
+      "description": "아산테의 이주노동 채무가 특별사면이나 법 개정을 통해 해소될지 여부",
+      "magnitude": "major",
+      "pays_off_in_arc": 4,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-04",
+      "description": "관아 내에서 상민 측에 은밀히 정보를 흘리거나 아산테를 돕는 협력자의 정체",
+      "magnitude": "major",
+      "pays_off_in_arc": 3,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-05",
+      "description": "관아장 최도식이 정치적 이해에 따라 아산테의 채무 해방과 판결 결재를 계속 조건부로 미루는 이유",
+      "magnitude": "major",
+      "pays_off_in_arc": 4,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-06",
+      "description": "박노미가 초반부터 얽혀 있는 개인적 부채와 가족 문제",
+      "magnitude": "minor",
+      "pays_off_in_arc": 2,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-07",
+      "description": "1부에서 패소한 특정 상단이 예고한 항소·재심이 실제로 어떤 형태의 보복으로 돌아오는가",
+      "magnitude": "minor",
+      "pays_off_in_arc": 2,
+      "planted_as": ""
+    },
+    {
+      "thread_id": "thread-08",
+      "description": "유겸이 아산테를 경계하다 점차 신뢰하게 되는 관계의 변화와 그 이면의 동기",
+      "magnitude": "minor",
+      "pays_off_in_arc": 3,
+      "planted_as": ""
+    }
+  ],
+  "total_episodes": 30,
+  "version": 1,
+  "last_modified_by": "agent"
+}
