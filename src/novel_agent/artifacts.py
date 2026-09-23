@@ -188,8 +188,17 @@ class BeatSheet(BaseModel):
 
 
 class ArcMap(BaseModel):
-    """L2 — current + next arc detailed, rest as loglines (represented as arcs list)."""
+    """L2 — current + next arc detailed, rest as loglines (represented as arcs list).
+
+    The overall picture, authored once before episode 1 and owned by the human.
+    A 떡밥 planted without it has no horizon to derive a deadline from, which is
+    how a 30화 serial's premise-level thread ended up due at 화7.
+    """
     arcs: list["Arc"] = Field(default_factory=list)
+    threads: list["PlannedThread"] = Field(default_factory=list)
+    total_episodes: int = 0
+    version: int = 1
+    last_modified_by: str = "agent"                # agent | author
 
 
 class Arc(BaseModel):
@@ -198,9 +207,25 @@ class Arc(BaseModel):
     climax: str = ""
     payoff: str = ""
     ending_hook: str = ""
-    episode_span: str = ""
-    status: str = "planned"                        # planned / active / done
+    # Integers, not the old "1-15" string: the span is read by arc_for_episode
+    # and by the seed deadline, and nothing ever parsed the string form.
+    start_ep: int = 0
+    end_ep: int = 0
     detailed: bool = False                         # False = logline-only
+
+
+class PlannedThread(BaseModel):
+    """A 떡밥 the story needs, decided with the arcs rather than improvised.
+
+    thread_id is what the planner quotes back when it plants one — the repo
+    already learned (see nodes._resolve_seed_ids) that matching on rewritten
+    prose fails silently.
+    """
+    thread_id: str
+    description: str
+    magnitude: SeedMagnitude = SeedMagnitude.MAJOR
+    pays_off_in_arc: int = 1
+    planted_as: str = ""                           # canonical seed_id once planted
 
 
 # ── derived / runtime artifacts ──────────────────────────────────────────────
@@ -268,3 +293,4 @@ class CanonDelta(BaseModel):
 
 
 ArcMap.model_rebuild()
+PlannedThread.model_rebuild()

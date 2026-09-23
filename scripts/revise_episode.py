@@ -17,7 +17,7 @@ from novel_agent.artifacts import Draft, Summary  # noqa: E402
 from novel_agent.canon_store import CanonStore  # noqa: E402
 from novel_agent.context_pack import ContextPackBuilder  # noqa: E402
 from novel_agent.llm import Usage, build_llm  # noqa: E402
-from novel_agent.nodes import plan_episode, seed_arc_map  # noqa: E402
+from novel_agent.nodes import effective_arc_map, plan_episode  # noqa: E402
 from novel_agent.reviser import revise_draft  # noqa: E402
 from novel_agent.style import lint_prose, style_score  # noqa: E402
 
@@ -50,7 +50,8 @@ def main() -> None:
 
     beats = plan_episode(
         llm, episode_number=a.episode, profile=profile, north_star=north_star, canon=canon,
-        arc_map=seed_arc_map(llm, north_star), rhythm=store.load_rhythm(),
+        arc_map=effective_arc_map(store.load_arc_map(), llm, north_star),
+        rhythm=store.load_rhythm(),
         foreshadow=store.load_foreshadow(), summary=store.load_summary(),
     )
     pack = ContextPackBuilder().build(

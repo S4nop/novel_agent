@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .artifacts import ArcMap
 from .canon_store import CanonStore
 from .canonicalizer import canonicalize_episode, commit_episode_state
 from .context_pack import ContextPackBuilder
@@ -35,7 +36,7 @@ from .continuity import blocks_acceptance, check_continuity, deterministic_findi
 from .craft import judge_craft, judge_opening_and_ending
 from .drafter import draft_episode
 from .llm import LLM, LLMRefusal, LLMUnavailable, Usage
-from .nodes import plan_episode, seed_arc_map
+from .nodes import effective_arc_map, plan_episode
 from .reviser import revise_draft
 from .style import Violation
 
@@ -83,6 +84,24 @@ class RunReport:
         return sum(1 for o in self.outcomes if o.committed)
 
 
+def resolve_target_episodes(flag: int | None,
+                           arc_map: ArcMap | None) -> tuple[int, str]:
+    """How long the serial runs, and a warning when the caller contradicts the plan.
+
+    The arcs were divided for a specific length, so running a different one
+    moves the loop bound, is_final and the convergence window all at once —
+    not something to do silently. An explicit flag still wins: the author may
+    genuinely be extending or cutting the run short.
+    """
+    planned = arc_map.total_episodes if arc_map else 0
+    if flag is None:
+        return planned or RunConfig().target_episodes, ""
+    if planned and planned != flag:
+        return flag, (f"아크 계획은 {planned}화 기준인데 {flag}화로 실행합니다 — "
+                      f"수렴 구간과 완결 화가 계획과 어긋납니다.")
+    return flag, ""
+
+
 def convergence_directive(episode: int, cfg: RunConfig, unpaid_major: int) -> str:
     """Pressure toward an ending, escalating as the target approaches.
 
@@ -112,7 +131,8 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
 
     beats = plan_episode(
         llm, episode_number=episode, profile=profile, north_star=ns, canon=canon,
-        arc_map=seed_arc_map(llm, ns), rhythm=store.load_rhythm(),
+        arc_map=effective_arc_map(store.load_arc_map(), llm, ns),
+        rhythm=store.load_rhythm(),
         foreshadow=foreshadow, summary=store.load_summary(),
         extra_directive=convergence_directive(episode, cfg, len(foreshadow.unpaid_major())),
         is_final=episode >= cfg.target_episodes,

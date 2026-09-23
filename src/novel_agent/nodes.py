@@ -27,6 +27,7 @@ from .artifacts import (
     GlossaryEntry,
     NorthStar,
     PlannedSeed,
+    PlannedThread,
     SeedMagnitude,
     Summary,
     VoiceBible,
@@ -38,6 +39,7 @@ from .llm import LLM
 from .prompts import analyst_system, restraint, voice_spec_guidance
 from .prompt_store import render
 from .schemas import (
+    ArcMapDraft,
     BeatSheetDraft,
     CanonInitDraft,
     GenreProfileDraft,
@@ -194,6 +196,111 @@ def init_canon_and_voice(
     return canon, voice
 
 
+def arc_for_episode(arc_map: ArcMap, episode: int) -> Arc | None:
+    """The arc an episode belongs to, derived from the spans.
+
+    Never stored as mutable status: the driver retries the SAME episode after a
+    failure, so a persisted "active" flag becomes a second source of truth that
+    goes stale on every backwards move of the cursor. An episode past the plan
+    falls to the last arc rather than losing its picture.
+    """
+    if not arc_map.arcs:
+        return None
+    for arc in arc_map.arcs:
+        if arc.start_ep <= episode <= arc.end_ep:
+            return arc
+    return arc_map.arcs[-1] if episode > arc_map.arcs[-1].end_ep else arc_map.arcs[0]
+
+
+_DETAILED_ARCS = 2          # current + next, per DESIGN §L2
+
+
+def effective_arc_map(stored: ArcMap | None, llm: LLM,
+                      north_star: NorthStar) -> ArcMap:
+    """The serial's plan, or the pre-L2 stub for a store that has none.
+
+    One place for the policy: every planning entry point routes through here,
+    so the driver, the console, run_setup and revise_episode cannot drift into
+    disagreeing about what the story's shape is.
+    """
+    return stored if stored is not None else seed_arc_map(llm, north_star)
+
+
+def _arc_line(arc_map: ArcMap, arc: Arc | None, episode: int) -> str:
+    """The current arc as ONE pre-formatted line.
+
+    Four separate slots would be four more things competing for the planner's
+    attention, and this repo has measured prompt additions costing quality.
+    """
+    if arc is None:
+        return "미정"
+    idx = arc_map.arcs.index(arc) + 1
+    parts = [f"{idx}부 · {arc.start_ep}-{arc.end_ep}화 중 {episode}화",
+             f"목표: {arc.goal}"]
+    for label, value in (("클라이맥스", arc.climax), ("보상", arc.payoff),
+                         ("다음 부로", arc.ending_hook)):
+        if value:
+            parts.append(f"{label}: {value}")
+    return " · ".join(parts)
+
+
+def plan_arcs(llm: LLM, *, north_star: NorthStar, profile: GenreProfile,
+              canon: Canon, total_episodes: int) -> ArcMap:
+    """L2 ArcPlanner — the overall picture, built once before episode 1.
+
+    Without it the EpisodePlanner invents 떡밥 knowing the premise and the story
+    so far but not where any of it is going, so a thread's deadline can only be
+    a guess. Spans are repaired rather than trusted: a gap means some episode
+    has no arc and the planner would silently lose its picture mid-serial.
+    """
+    draft = llm.structured(
+        [
+            {"role": "system", "content": analyst_system()},
+            {"role": "user", "content": render(
+                "arc_plan", premise=north_star.premise,
+                core_conflict=north_star.core_conflict,
+                episode_engine=north_star.episode_engine,
+                central_twist=north_star.central_twist or "미정",
+                hard_rules="; ".join(north_star.hard_rules) or "없음",
+                sub_genre=profile.sub_genre,
+                catharsis_cadence=profile.target_catharsis_cadence,
+                cast=", ".join(canon.characters) or "미정",
+                total_episodes=total_episodes)},
+        ],
+        ArcMapDraft,
+    )
+
+    arcs: list[Arc] = []
+    cursor = 1
+    for i, a in enumerate(draft.arcs):
+        if cursor > total_episodes:
+            break
+        end = min(max(a.end_ep, cursor), total_episodes)
+        arcs.append(Arc(
+            goal=a.goal, antagonist=a.antagonist, climax=a.climax,
+            payoff=a.payoff, ending_hook=a.ending_hook,
+            start_ep=cursor, end_ep=end, detailed=i < _DETAILED_ARCS,
+        ))
+        cursor = end + 1
+    if not arcs:
+        arcs = [Arc(goal=north_star.core_conflict,
+                    climax=north_star.central_twist or "1부 전환점",
+                    start_ep=1, end_ep=total_episodes, detailed=True)]
+    arcs[-1].end_ep = total_episodes
+
+    threads = [
+        PlannedThread(
+            thread_id=f"thread-{i:02d}",
+            description=t.description,
+            magnitude=_magnitude(t.magnitude),
+            # A thread pointing past the last arc could never be drawn down.
+            pays_off_in_arc=min(max(t.pays_off_in_arc or 1, 1), len(arcs)),
+        )
+        for i, t in enumerate(draft.threads, 1)
+    ]
+    return ArcMap(arcs=arcs, threads=threads, total_episodes=total_episodes)
+
+
 def seed_arc_map(llm: LLM, north_star: NorthStar) -> ArcMap:
     """Minimal first ArcMap so EpisodePlanner is unblocked (invariant #11).
     Phase 1a keeps this thin — one active arc; full ArcPlanner comes later."""
@@ -203,8 +310,8 @@ def seed_arc_map(llm: LLM, north_star: NorthStar) -> ArcMap:
                 goal=north_star.core_conflict,
                 climax=north_star.central_twist or "1부 전환점",
                 payoff="주인공이 처음으로 판을 뒤집는다",
-                episode_span="1-15",
-                status="active",
+                start_ep=1,
+                end_ep=15,
                 detailed=True,
             )
         ]
@@ -307,7 +414,7 @@ def plan_episode(
     total_episodes: int | None = None,
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
-    arc = next((a for a in arc_map.arcs if a.status == "active"), None)
+    arc = arc_for_episode(arc_map, episode_number)
     due = foreshadow.due(episode_number)
     if extra_directive:
         # Converging: the directive calls a MAJOR payoff mandatory, but this
@@ -329,8 +436,8 @@ def plan_episode(
                 catharsis_cadence=profile.target_catharsis_cadence,
                 max_frustration=profile.max_consecutive_frustration_beats,
                 forbidden=", ".join(profile.forbidden_anti_patterns) or "없음",
-                arc_goal=(arc.goal if arc else "미정"),
-                arc_payoff=(arc.payoff if arc else ""),
+                arc_line=_arc_line(arc_map, arc, episode_number),
+                central_twist=north_star.central_twist or "미정",
                 cast=cast,
                 story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
                 pacing_directive="\n".join(

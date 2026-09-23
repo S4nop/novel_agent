@@ -31,7 +31,7 @@ from novel_agent.nodes import (  # noqa: E402
     infer_genre_profile,
     init_canon_and_voice,
     plan_episode,
-    seed_arc_map,
+    effective_arc_map,
     to_north_star,
 )
 
@@ -151,7 +151,8 @@ def main() -> None:
     # 4) EpisodePlanner
     beats = plan_episode(
         llm, episode_number=1, profile=profile, north_star=north_star, canon=canon,
-        arc_map=seed_arc_map(llm, north_star), rhythm=store.load_rhythm(),
+        arc_map=effective_arc_map(store.load_arc_map(), llm, north_star),
+        rhythm=store.load_rhythm(),
         foreshadow=store.load_foreshadow(), summary=Summary(),
     )
     print(f"\n■ L3 BEAT SHEET (1화)")

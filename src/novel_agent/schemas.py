@@ -73,6 +73,28 @@ class CanonInitDraft(BaseModel):
     voice_exemplars: list[str] = Field(description="그 문체를 보여주는 예문 2~3개")
 
 
+class ArcDraft(BaseModel):
+    goal: str = Field(description="이 부(arc)에서 주인공이 쫓는 목표")
+    antagonist: str = Field(default="", description="이 부의 대립 축")
+    climax: str = Field(description="이 부가 터지는 지점")
+    payoff: str = Field(description="독자가 이 부에서 받는 보상")
+    ending_hook: str = Field(default="", description="다음 부로 넘기는 갈고리")
+    start_ep: int = Field(description="이 부가 시작하는 화")
+    end_ep: int = Field(description="이 부가 끝나는 화")
+
+
+class PlannedThreadDraft(BaseModel):
+    description: str = Field(description="이 이야기에 반드시 필요한 떡밥 하나")
+    magnitude: str = Field(description="major | minor")
+    pays_off_in_arc: int = Field(description="몇 번째 부에서 회수되는가 (1부터)")
+
+
+class ArcMapDraft(BaseModel):
+    """L2 — the whole serial broken into arcs, with the threads it needs."""
+    arcs: list[ArcDraft]
+    threads: list[PlannedThreadDraft]
+
+
 class BeatDraft(BaseModel):
     text: str
     beat_type: str = Field(description="setup | escalation | payoff | frustration | reveal | cliffhanger")

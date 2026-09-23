@@ -8,7 +8,10 @@ ${sub_genre} · 사이다 주기 ${catharsis_cadence}화 이내 · 최대 연속
 금지: ${forbidden}
 
 [현재 아크]
-${arc_goal} → ${arc_payoff}
+${arc_line}
+
+[중심 반전] — 주요 떡밥은 결국 여기로 모입니다
+${central_twist}
 
 [등장 가능 인물]
 ${cast}

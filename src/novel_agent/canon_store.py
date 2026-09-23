@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from .artifacts import (
+    ArcMap,
     Canon,
     CanonDelta,
     EpisodeRecord,
@@ -41,6 +42,9 @@ class CanonStore:
         north_star: NorthStar,
         canon: Canon,
         voice_bible: VoiceBible,
+        # Optional: the console locks a premise before an arc plan exists, and
+        # every store created before L2 shipped has none.
+        arc_map: ArcMap | None = None,
     ) -> None:
         """Setup gate PASS: write the stable spine and create EMPTY, versioned
         ForeshadowLedger + RhythmState + Summary (invariant #4)."""
@@ -54,6 +58,8 @@ class CanonStore:
         # accrued from episodes cannot be told apart from the authored card
         # after the fact, so the authored shape is kept as its own file.
         self._write(_AUTHORED, canon)
+        if arc_map is not None:
+            self._write("arc_map.json", arc_map)
         self._write(
             "rhythm.json",
             RhythmState(
@@ -92,6 +98,21 @@ class CanonStore:
 
     def save_summary(self, summary: Summary) -> None:
         self._write("summary.json", summary)
+
+    def load_arc_map(self) -> ArcMap | None:
+        """The serial's overall picture, or None if this store predates it.
+
+        None rather than a raise: the typed loaders are bare read_text, and a
+        missing file inside commit_episode_state would fire after the gate
+        passed and after the ledgers were written — a half-committed episode.
+        """
+        path = self.root / "arc_map.json"
+        if not path.exists():
+            return None
+        return ArcMap.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def save_arc_map(self, arc_map: ArcMap) -> None:
+        self._write("arc_map.json", arc_map)
 
     def load_genre_profile(self) -> GenreProfile:
         return GenreProfile.model_validate_json(self._read("genre_profile.json"))
@@ -205,6 +226,14 @@ class CanonStore:
             max_consecutive_frustration=profile.max_consecutive_frustration_beats,
             target_catharsis_cadence=profile.target_catharsis_cadence,
         ))
+
+        # The plan is the author's setup and stays. Which of its threads the
+        # serial got around to planting is accumulation, and rewinds.
+        arc_map = self.load_arc_map()
+        if arc_map is not None:
+            for thread in arc_map.threads:
+                thread.planted_as = ""
+            self.save_arc_map(arc_map)
 
         snapshot = self.root / _AUTHORED
         full = snapshot.exists()

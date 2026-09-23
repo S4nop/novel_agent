@@ -38,7 +38,7 @@ from ..nodes import (
     infer_genre_profile,
     init_canon_and_voice,
     plan_episode,
-    seed_arc_map,
+    effective_arc_map,
     to_north_star,
 )
 from ..reviser import revise_draft
@@ -377,7 +377,8 @@ def episode(pid: str, body: DraftIn):
 
         beats = plan_episode(
             llm, episode_number=body.episode, profile=profile, north_star=ns,
-            canon=canon, arc_map=seed_arc_map(llm, ns), rhythm=store.load_rhythm(),
+            canon=canon, arc_map=effective_arc_map(store.load_arc_map(), llm, ns),
+            rhythm=store.load_rhythm(),
             foreshadow=store.load_foreshadow(), summary=store.load_summary(),
         )
         pack = ContextPackBuilder().build(
