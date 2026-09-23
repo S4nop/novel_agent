@@ -29,6 +29,7 @@ from .artifacts import (
     PlannedSeed,
     PlannedThread,
     SeedMagnitude,
+    SeedStatus,
     Summary,
     VoiceBible,
     VoiceCard,
@@ -262,12 +263,34 @@ def unplanted_threads(arc_map: ArcMap) -> list[PlannedThread]:
                   key=lambda t: t.pays_off_in_arc)
 
 
-def _thread_line(arc_map: ArcMap, thread: PlannedThread) -> str:
+def unfinished_plan_threads(arc_map: ArcMap,
+                            foreshadow: ForeshadowLedger) -> list[PlannedThread]:
+    """Major threads the plan calls for that the serial has not closed.
+
+    The ledger only knows what was planted, so a plan saying the story needs
+    five spine threads was satisfied by planting none of them — completion_ready
+    stayed True for a story that told none of what it set out to tell. A minor
+    never blocks: being droppable is what separates it from a major.
+    """
+    out = []
+    for t in arc_map.threads:
+        if t.magnitude is not SeedMagnitude.MAJOR:
+            continue
+        seed = foreshadow.seeds.get(t.planted_as) if t.planted_as else None
+        if seed is None or seed.status is not SeedStatus.PAID:
+            out.append(t)
+    return out
+
+
+def _thread_line(arc_map: ArcMap, thread: PlannedThread, episode: int) -> str:
     idx = min(max(thread.pays_off_in_arc, 1), len(arc_map.arcs)) - 1
     arc = arc_map.arcs[idx] if arc_map.arcs else None
     where = f"{idx + 1}부({arc.start_ep}-{arc.end_ep}화)" if arc else "미정"
+    # Convergence pressure only starts five episodes from the end, so without
+    # this a thread due in arc 2 would go unmentioned until 화25.
+    late = " ⚠ 회수할 부가 지났는데 아직 안 던졌습니다" if arc and episode > arc.end_ep else ""
     return (f"- [{thread.thread_id}] ({thread.magnitude.value}) "
-            f"{thread.description} → {where}에서 회수")
+            f"{thread.description} → {where}에서 회수{late}")
 
 
 def _thread_arc_end(arc_map: ArcMap, thread_id: str) -> int | None:
@@ -540,7 +563,8 @@ def plan_episode(
                 closing_rule=render(
                     "closing_rule_final" if is_final else "closing_rule_serial"),
                 planned_threads=(chr(10).join(
-                    _thread_line(arc_map, t) for t in unplanted_threads(arc_map))
+                    _thread_line(arc_map, t, episode_number)
+                    for t in unplanted_threads(arc_map))
                     or "없음"),
                 ripening_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
                                              for x in foreshadow.ripening(episode_number))

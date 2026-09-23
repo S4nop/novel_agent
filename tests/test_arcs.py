@@ -354,3 +354,77 @@ def test_the_arc_planner_is_shown_what_each_character_can_actually_do():
     sent = llm.prompts[-1]
     assert "상단의 법무 대리권" in sent
     assert "왼팔이 의체" in sent
+
+
+# ── the plan is enforced, not just written ──────────────────────────────────
+def _ledger_with(plan, *, paid=()):
+    """Plant every thread the plan marks as planted, paying the named ones."""
+    from novel_agent.artifacts import PlannedSeed
+    from novel_agent.ledgers import ForeshadowLedger
+    led = ForeshadowLedger()
+    for t in plan.threads:
+        if not t.planted_as:
+            continue
+        seed = led.plant(PlannedSeed(proposed_seed_id=t.thread_id,
+                                     description=t.description,
+                                     magnitude=t.magnitude, due_by_ep=9), episode=1)
+        t.planted_as = seed.seed_id
+        if t.thread_id in paid:
+            led.pay(seed.seed_id, episode=2)
+    return led
+
+
+def test_a_major_the_plan_calls_for_and_the_serial_never_threw_blocks_completion():
+    """The ledger only knows what was planted, so a plan saying the story needs
+    five spine threads was satisfied by planting none of them — 완결 판정 was
+    True for a story that told none of what it set out to tell."""
+    from novel_agent.ledgers import ForeshadowLedger
+    from novel_agent.nodes import unfinished_plan_threads
+
+    plan = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 3),))))
+    assert ForeshadowLedger().completion_ready() is True      # ledger alone: ready
+    assert [t.thread_id for t in unfinished_plan_threads(plan, ForeshadowLedger())] \
+        == ["thread-01"]
+
+
+def test_a_planned_major_that_was_thrown_but_never_paid_still_blocks():
+    from novel_agent.nodes import unfinished_plan_threads
+
+    plan = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 3),))))
+    plan.threads[0].planted_as = "pending"
+    led = _ledger_with(plan)
+    assert [t.thread_id for t in unfinished_plan_threads(plan, led)] == ["thread-01"]
+
+
+def test_a_planned_major_that_was_thrown_and_paid_blocks_nothing():
+    from novel_agent.nodes import unfinished_plan_threads
+
+    plan = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 3),))))
+    plan.threads[0].planted_as = "pending"
+    led = _ledger_with(plan, paid=("thread-01",))
+    assert unfinished_plan_threads(plan, led) == []
+
+
+def test_a_planned_minor_never_blocks_completion():
+    """minor is droppable by definition — that is what separates it from major."""
+    from novel_agent.ledgers import ForeshadowLedger
+    from novel_agent.nodes import unfinished_plan_threads
+
+    plan = _plan(ScriptedLLM(_draft(threads=(("소문의 출처", "minor", 2),))))
+    assert unfinished_plan_threads(plan, ForeshadowLedger()) == []
+
+
+def test_a_thread_whose_arc_has_arrived_is_marked_urgent_for_the_planner():
+    """Convergence pressure only starts five episodes from the end, so a thread
+    due in arc 2 that was never thrown would go unmentioned until 화25."""
+    am = _plan(ScriptedLLM(_draft(threads=(("검왕의 정체", "major", 1),))))
+    llm = _seed_llm()
+    _plan_ep(llm, am, episode=9)             # arc 1 ended at 10... still open
+    early = llm.prompts[-1]
+
+    llm2 = _seed_llm()
+    _plan_ep(llm2, am, episode=25)           # long past arc 1
+    late = llm2.prompts[-1]
+
+    assert "아직 안 던졌습니다" not in early
+    assert "아직 안 던졌습니다" in late

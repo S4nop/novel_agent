@@ -1,0 +1,15 @@
+{
+  "seeds": {
+    "seed-0001": {
+      "seed_id": "seed-0001",
+      "description": "카심이 판결마다 보증으로 건 채무가 이번 항소로 동결되며, 승소해도 그의 빚이 줄지 않는 구조가 처음으로 드러난다.",
+      "magnitude": "minor",
+      "planted_ep": 1,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 14,
+      "status": "planted"
+    }
+  },
+  "next_seq": 2
+}

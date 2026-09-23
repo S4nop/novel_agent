@@ -36,7 +36,7 @@ from .continuity import blocks_acceptance, check_continuity, deterministic_findi
 from .craft import judge_craft, judge_opening_and_ending
 from .drafter import draft_episode
 from .llm import LLM, LLMRefusal, LLMUnavailable, Usage
-from .nodes import effective_arc_map, plan_episode
+from .nodes import effective_arc_map, plan_episode, unfinished_plan_threads
 from .reviser import revise_draft
 from .style import Violation
 
@@ -244,13 +244,24 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
         # 완결 check runs only after a committed episode: a story cannot end on
         # a draft that was rejected.
         if episode >= cfg.target_episodes:
-            if store.load_foreshadow().completion_ready():
+            foreshadow = store.load_foreshadow()
+            # The plan is part of the verdict: a story that never threw the
+            # spine threads it was designed around has not been told, however
+            # empty the ledger looks. An unwanted thread is removed by editing
+            # the plan, which is the author's to edit.
+            plan = store.load_arc_map()
+            owed = unfinished_plan_threads(plan, foreshadow) if plan else []
+            if foreshadow.completion_ready() and not owed:
                 report.completed = True
                 report.stopped_because = f"완결 — {episode}화, 미회수 주요 떡밥 0건"
             else:
-                unpaid = len(store.load_foreshadow().unpaid_major())
+                unpaid = len(foreshadow.unpaid_major())
+                detail = f"미회수 주요 떡밥 {unpaid}건"
+                if owed:
+                    detail += (f" · 계획된 주요 떡밥 {len(owed)}건 미완: "
+                               + ", ".join(t.thread_id for t in owed))
                 report.stopped_because = (
-                    f"목표 {cfg.target_episodes}화 도달했으나 미회수 주요 떡밥 {unpaid}건 — "
+                    f"목표 {cfg.target_episodes}화 도달했으나 {detail} — "
                     "완결 판정 불가. 회수 화를 더 쓰거나 사람이 확인하세요.")
             break
         episode += 1        # only a COMMITTED episode moves the cursor
