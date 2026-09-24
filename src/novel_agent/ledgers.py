@@ -138,6 +138,23 @@ class ForeshadowLedger(BaseModel):
         seed.status = SeedStatus.PAID
         seed.paid_ep = episode
 
+    def abandon(self, seed_id: str, episode: int) -> None:
+        """Retire a thread the story is not going to pay off.
+
+        SeedStatus.ABANDONED was tested by _open() and assigned by nobody, so a
+        seed could only ever be PLANTED, REINFORCED or PAID — a dropped thread
+        had no exit. due() re-listed it every episode and, if major,
+        unpaid_major() kept it so completion_ready() could never be True again.
+        Never automatic: a deadline passing is not evidence the author gave up
+        on a thread, and auto-retiring one would quietly delete the spine of a
+        story. A paid seed is left alone.
+        """
+        seed = self.seeds[seed_id]
+        if seed.status is SeedStatus.PAID:
+            return
+        seed.status = SeedStatus.ABANDONED
+        seed.abandoned_ep = episode
+
     def _open(self, seed: ForeshadowSeed) -> bool:
         return seed.status not in (SeedStatus.PAID, SeedStatus.ABANDONED)
 

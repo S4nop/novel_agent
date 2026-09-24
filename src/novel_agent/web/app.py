@@ -150,6 +150,10 @@ class ArcMapIn(BaseModel):
     arc_map: dict
 
 
+class AbandonIn(BaseModel):
+    episode: int = 0
+
+
 class LintIn(BaseModel):
     text: str
     target_chars: int = 5200
@@ -301,6 +305,33 @@ def arcs_put(pid: str, body: ArcMapIn):
     state["arc_map"] = plan.model_dump(mode="json")
     _save(pid, state)
     return state["arc_map"]
+
+
+@app.get("/api/projects/{pid}/seeds")
+def seeds_get(pid: str):
+    """The 떡밥 ledger, open threads first — what the story still owes."""
+    led = CanonStore(_dir(pid) / "_novel").load_foreshadow()
+    order = {"planted": 0, "reinforced": 1, "paid": 2, "abandoned": 3}
+    seeds = sorted((s.model_dump(mode="json") for s in led.seeds.values()),
+                   key=lambda s: (order.get(s["status"], 9), s["seed_id"]))
+    return {"seeds": seeds, "unpaid_major": [s.seed_id for s in led.unpaid_major()]}
+
+
+@app.post("/api/projects/{pid}/seeds/{seed_id}/abandon")
+def seed_abandon(pid: str, seed_id: str, body: AbandonIn):
+    """Retire a thread the story is not going to pay off.
+
+    Never automatic: a passed deadline is not evidence the author gave up on a
+    thread. Without this a dropped major kept completion_ready() False forever
+    and due() re-listed it in every remaining episode's prompt.
+    """
+    store = CanonStore(_dir(pid) / "_novel")
+    led = store.load_foreshadow()
+    if seed_id not in led.seeds:
+        raise HTTPException(400, f"그런 떡밥이 없습니다: {seed_id}")
+    led.abandon(seed_id, episode=body.episode)
+    store.save_foreshadow(led)
+    return led.seeds[seed_id].model_dump(mode="json")
 
 
 @app.get("/api/projects")

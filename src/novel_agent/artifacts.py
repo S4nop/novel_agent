@@ -151,6 +151,7 @@ class ForeshadowSeed(BaseModel):
     magnitude: SeedMagnitude = SeedMagnitude.MINOR
     planted_ep: int | None = None
     paid_ep: int | None = None
+    abandoned_ep: int | None = None
     reinforced_in: list[int] = Field(default_factory=list)
     intended_payoff: str = ""
     due_by_ep: int | None = None

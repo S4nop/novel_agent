@@ -1,5 +1,5 @@
 """Behavior tests for the cross-episode control ledgers (DESIGN §3)."""
-from novel_agent.artifacts import BeatType, PlannedSeed, SeedMagnitude
+from novel_agent.artifacts import BeatType, PlannedSeed, SeedMagnitude, SeedStatus
 from novel_agent.ledgers import ForeshadowLedger, RhythmState
 
 F, P, S, R, C = (
@@ -183,3 +183,39 @@ def test_a_paid_seed_records_the_episode_that_paid_it():
 
     paid = led.seeds[seed.seed_id]
     assert (paid.planted_ep, paid.paid_ep) == (2, 7)
+
+
+def test_an_abandoned_seed_stops_being_owed():
+    """SeedStatus.ABANDONED was tested by _open() and assigned by nobody, so a
+    seed could only ever be PLANTED, REINFORCED or PAID. A thread the author
+    drops therefore had no exit: due() re-listed it every episode and, if
+    major, unpaid_major() kept it so completion_ready() could never be True
+    again."""
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 magnitude=SeedMagnitude.MAJOR, due_by_ep=3), episode=1)
+    assert led.completion_ready() is False
+
+    led.abandon(seed.seed_id, episode=5)
+
+    assert led.completion_ready() is True
+    assert led.due(9) == []
+    assert led.seeds[seed.seed_id].status is SeedStatus.ABANDONED
+
+
+def test_abandoning_records_when_so_the_decision_is_auditable():
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 due_by_ep=3), episode=1)
+    led.abandon(seed.seed_id, episode=5)
+    assert led.seeds[seed.seed_id].paid_ep is None
+    assert led.seeds[seed.seed_id].abandoned_ep == 5
+
+
+def test_a_paid_seed_is_not_quietly_reopened_by_abandoning_it():
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 due_by_ep=3), episode=1)
+    led.pay(seed.seed_id, episode=2)
+    led.abandon(seed.seed_id, episode=5)
+    assert led.seeds[seed.seed_id].status is SeedStatus.PAID

@@ -102,6 +102,13 @@
       </div>
       <div id="arcs" style="margin-top:10px"></div>
       <textarea id="arcEdit" rows="18" class="mono" style="display:none;margin-top:10px"></textarea>
+
+      <div class="row" id="seedBar" style="margin-top:14px;display:none">
+        <strong class="k">떡밥 장부</strong>
+        <button class="ghost" onclick="loadSeeds()">불러오기</button>
+        <span id="seedMsg" class="k"></span>
+      </div>
+      <div id="seeds" style="margin-top:10px"></div>
     </div>
 
     <div class="panel">
@@ -205,7 +212,7 @@ function applyState(st){
   if(st.profile) renderProfile(st);
   if(st.candidates) renderCandidates(st.candidates, st.picked||1);
   if(st.canon) renderCanon(st);
-  if(st.arc_map) renderArcs(st.arc_map);
+  if(st.arc_map){ renderArcs(st.arc_map); $('#seedBar').style.display=''; }
   renderCost(st.usage);
 }
 function renderCost(u){
@@ -330,6 +337,32 @@ async function saveArcs(){
     $('#arcMsg').innerHTML = `<span class="pill ok">저장됨 v${saved.version}</span>`;
     renderArcs(saved); log('아크 계획 수정 저장 v'+saved.version);
   }catch(e){ $('#arcMsg').innerHTML = `<span class="pill bad">저장 실패</span> ${esc(e.message)}`; }
+}
+
+// ── the 떡밥 ledger: what the story still owes, and what it gave up on ──────
+async function loadSeeds(){
+  try{
+    const r = await api(`/api/projects/${PID}/seeds`);
+    if(!r.seeds.length){ $('#seeds').innerHTML = '<span class="k">아직 심긴 떡밥이 없습니다.</span>'; return; }
+    const pill = {planted:'warn', reinforced:'warn', paid:'ok', abandoned:'dim'};
+    $('#seeds').innerHTML = `<table>${r.seeds.map(s=>`
+      <tr><th>${esc(s.seed_id)} <span class="pill ${pill[s.status]||'dim'}">${esc(s.status)}</span></th>
+        <td>${esc(s.description)}
+          <br><span class="k">${s.magnitude} · ${s.planted_ep}화 심음${s.due_by_ep?` → ${s.due_by_ep}화까지`:''}${s.paid_ep?` · ${s.paid_ep}화 회수`:''}${s.abandoned_ep?` · ${s.abandoned_ep}화 폐기`:''}</span>
+          ${s.status==='paid'||s.status==='abandoned' ? '' :
+            `<br><button class="ghost" onclick="abandonSeed('${s.seed_id}')">이 떡밥 접기</button>`}
+        </td></tr>`).join('')}</table>
+      <div class="k" style="margin-top:6px">미회수 주요 떡밥 ${r.unpaid_major.length}건 — 0건이어야 완결 판정이 납니다.</div>`;
+    $('#seedMsg').textContent='';
+  }catch(e){ $('#seedMsg').innerHTML = `<span class="pill bad">실패</span> ${esc(e.message)}`; }
+}
+async function abandonSeed(id){
+  // Never automatic: a passed deadline is not evidence the author gave up.
+  if(!confirm(`${id} 을(를) 접습니다. 이 떡밥은 다시 회수 대상이 되지 않습니다.`)) return;
+  try{
+    await api(`/api/projects/${PID}/seeds/${id}/abandon`,'POST',{episode:+$('#epNo').value});
+    log('떡밥 폐기 '+id); loadSeeds();
+  }catch(e){ $('#seedMsg').innerHTML = `<span class="pill bad">실패</span> ${esc(e.message)}`; }
 }
 
 // ── canon hand-editing (regeneration re-rolls the parts you liked) ──────────

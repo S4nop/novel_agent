@@ -360,3 +360,47 @@ def test_locking_a_premise_in_the_console_also_produces_an_arc_plan(client, monk
     assert plan.total_episodes == 16
     assert plan.arcs[-1].end_ep == 16
     assert [t.thread_id for t in plan.threads] == ["thread-01"]
+
+
+# ── the 떡밥 ledger is the author's too ─────────────────────────────────────
+def _seed_ledger(pid):
+    from novel_agent.artifacts import PlannedSeed, SeedMagnitude
+    store = _seed_canon(pid)
+    led = store.load_foreshadow()
+    led.plant(PlannedSeed(proposed_seed_id="p1", description="검왕의 정체",
+                          magnitude=SeedMagnitude.MAJOR, due_by_ep=9), episode=1)
+    led.plant(PlannedSeed(proposed_seed_id="p2", description="사라진 호패",
+                          due_by_ep=4), episode=1)
+    store.save_foreshadow(led)
+    return store
+
+
+def test_the_open_seeds_can_be_read_back(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_ledger(pid)
+    seeds = client.get(f"/api/projects/{pid}/seeds").json()["seeds"]
+    assert {s["description"] for s in seeds} == {"검왕의 정체", "사라진 호패"}
+
+
+def test_the_author_can_retire_a_thread_the_story_dropped(client):
+    """A major with no exit keeps completion_ready() False forever, and due()
+    re-lists it in every remaining episode's prompt."""
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_ledger(pid)
+    assert store.load_foreshadow().completion_ready() is False
+
+    r = client.post(f"/api/projects/{pid}/seeds/seed-0001/abandon",
+                    json={"episode": 6})
+    assert r.status_code == 200
+
+    led = store.load_foreshadow()
+    assert led.completion_ready() is True
+    assert led.seeds["seed-0001"].abandoned_ep == 6
+
+
+def test_retiring_an_unknown_seed_is_a_readable_error(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_ledger(pid)
+    r = client.post(f"/api/projects/{pid}/seeds/seed-9999/abandon", json={"episode": 6})
+    assert r.status_code == 400
+    assert "seed-9999" in r.json()["detail"]
