@@ -148,6 +148,11 @@
 
   <div>
     <div class="panel">
+      <div class="row" id="pendBar" style="display:none;margin-bottom:10px">
+        <strong class="k" id="pendMsg">승인 대기</strong>
+        <button onclick="acceptPending()" id="bAccept">승인 — 캐논에 반영</button>
+        <button class="ghost" onclick="rejectPending()" id="bReject">반려 — 다시 쓰기</button>
+      </div>
       <h2>결과 원고</h2>
       <div id="epScore"></div>
       <pre class="prose" id="prose">아직 원고가 없습니다.</pre>
@@ -213,6 +218,7 @@ function applyState(st){
   if(st.candidates) renderCandidates(st.candidates, st.picked||1);
   if(st.canon) renderCanon(st);
   if(st.arc_map){ renderArcs(st.arc_map); $('#seedBar').style.display=''; }
+  if(PID) loadPending();
   renderCost(st.usage);
 }
 function renderCost(u){
@@ -337,6 +343,39 @@ async function saveArcs(){
     $('#arcMsg').innerHTML = `<span class="pill ok">저장됨 v${saved.version}</span>`;
     renderArcs(saved); log('아크 계획 수정 저장 v'+saved.version);
   }catch(e){ $('#arcMsg').innerHTML = `<span class="pill bad">저장 실패</span> ${esc(e.message)}`; }
+}
+
+// ── the author's accept gate ───────────────────────────────────────────────
+// A passing gate used to mean committing to canon immediately, so an episode
+// the author disliked was already locked into every later episode's context.
+async function loadPending(){
+  try{
+    const p = await api(`/api/projects/${PID}/pending`);
+    if(!p.episode){ $('#pendBar').style.display='none'; return; }
+    $('#pendBar').style.display='';
+    $('#pendMsg').innerHTML =
+      `<span class="pill warn">${p.episode}화 승인 대기</span> ${p.chars}자 · 문체 ${p.score}`
+      + (p.findings.length ? ` · 지적 ${p.findings.length}건` : '');
+    $('#prose').textContent = p.prose;
+    if(p.findings.length) log(`${p.episode}화 지적: ` + p.findings.join(' / '));
+  }catch(e){ $('#pendBar').style.display='none'; }
+}
+async function acceptPending(){
+  busy('#bAccept', true, 1);
+  try{
+    const r = await api(`/api/projects/${PID}/pending/accept`,'POST',{});
+    log(`${r.accepted}화 승인 — 원장 반영 + 캐논 추출`);
+    $('#epNo').value = r.accepted + 1;
+    await loadPending(); applyState(await api('/api/projects/'+PID));
+  }catch(e){ log('승인 실패: '+esc(e.message)); } finally { busy('#bAccept', false, 1); }
+}
+async function rejectPending(){
+  if(!confirm('이 화를 반려합니다. 캐논은 그대로이고 다음 집필이 같은 화를 다시 씁니다.')) return;
+  try{
+    const r = await api(`/api/projects/${PID}/pending/reject`,'POST',{});
+    log(`${r.rejected}화 반려 — 캐논 변경 없음`);
+    await loadPending();
+  }catch(e){ log('반려 실패: '+esc(e.message)); }
 }
 
 // ── the 떡밥 ledger: what the story still owes, and what it gave up on ──────

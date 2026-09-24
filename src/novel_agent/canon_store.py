@@ -16,6 +16,7 @@ from pathlib import Path
 from .artifacts import (
     ArcMap,
     Canon,
+    PendingEpisode,
     CanonDelta,
     EpisodeRecord,
     GenreProfile,
@@ -98,6 +99,20 @@ class CanonStore:
 
     def save_summary(self, summary: Summary) -> None:
         self._write("summary.json", summary)
+
+    # ── the author's accept gate ──────────────────────────────────────────
+    def pending_episode(self) -> PendingEpisode | None:
+        """The episode waiting for the author, or None."""
+        path = self.root / "pending.json"
+        if not path.exists():
+            return None
+        return PendingEpisode.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def hold_episode(self, pending: PendingEpisode) -> None:
+        self._write("pending.json", pending)
+
+    def clear_pending(self) -> None:
+        (self.root / "pending.json").unlink(missing_ok=True)
 
     def load_arc_map(self) -> ArcMap | None:
         """The serial's overall picture, or None if this store predates it.
@@ -215,6 +230,7 @@ class CanonStore:
         import shutil
 
         shutil.rmtree(self.episodes_dir, ignore_errors=True)
+        self.clear_pending()
         self.save_summary(Summary())
         self.save_foreshadow(ForeshadowLedger())
         # Seeded from the profile the way initialize does. A bare RhythmState()

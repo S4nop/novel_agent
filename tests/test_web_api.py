@@ -404,3 +404,66 @@ def test_retiring_an_unknown_seed_is_a_readable_error(client):
     r = client.post(f"/api/projects/{pid}/seeds/seed-9999/abandon", json={"episode": 6})
     assert r.status_code == 400
     assert "seed-9999" in r.json()["detail"]
+
+
+# ── the author's accept gate in the console ────────────────────────────────
+def _hold(pid, episode=1):
+    from novel_agent.artifacts import Beat, BeatSheet, BeatType, Draft, PendingEpisode
+    store = _seed_canon(pid)
+    store.hold_episode(PendingEpisode(
+        draft=Draft(episode_number=episode, prose="보류된 본문이다."),
+        beats=BeatSheet(episode_number=episode, opening_hook="훅",
+                        the_one_progression="진전", closing_cliffhanger="절단",
+                        beats=[Beat(text="b", beat_type=BeatType.PAYOFF)]),
+        score=92, findings=["[major] 크래프트: 장르 기대 — 사이다가 약함"]))
+    return store
+
+
+def test_the_episode_awaiting_review_can_be_read(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _hold(pid)
+    r = client.get(f"/api/projects/{pid}/pending").json()
+    assert r["episode"] == 1
+    assert r["prose"] == "보류된 본문이다."
+    assert r["score"] == 92
+    assert r["findings"]
+
+
+def test_nothing_awaiting_review_is_reported_as_such_not_an_error(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_canon(pid)
+    r = client.get(f"/api/projects/{pid}/pending")
+    assert r.status_code == 200
+    assert r.json()["episode"] is None
+
+
+def test_rejecting_from_the_console_leaves_canon_untouched(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _hold(pid)
+
+    r = client.post(f"/api/projects/{pid}/pending/reject")
+    assert r.status_code == 200
+    assert store.pending_episode() is None
+    assert store.latest_episode_number() == 0
+    assert store.load_summary().story_so_far == ""
+
+
+def test_accepting_from_the_console_commits_the_episode(client, monkeypatch):
+    from novel_agent.schemas import CanonDeltaDraft
+
+    class FakeLLM:
+        def structured(self, messages, schema):
+            return CanonDeltaDraft()
+
+        def text(self, messages, *, max_tokens=8192):  # pragma: no cover
+            raise NotImplementedError
+
+    monkeypatch.setattr(web, "build_llm", lambda *a, **k: FakeLLM())
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _hold(pid)
+
+    r = client.post(f"/api/projects/{pid}/pending/accept")
+    assert r.status_code == 200
+    assert store.pending_episode() is None
+    assert store.latest_episode_number() == 1
+    assert "1화" in store.load_summary().story_so_far

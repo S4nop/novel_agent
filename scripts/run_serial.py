@@ -73,7 +73,8 @@ def main() -> None:
     report = run_serial(llm, store, usage=usage, config=RunConfig(
         target_episodes=a.episodes, max_krw=a.budget,
         max_consecutive_failures=a.max_failures, revise_iterations=a.iterations,
-        converge_within=a.converge_within, forbidden_terms=forbidden))
+        converge_within=a.converge_within, forbidden_terms=forbidden,
+        require_approval=a.approve))
 
     # The store keeps episodes as JSON under _novel/episodes/; export the
     # committed ones as plain .txt so they are actually readable.

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .artifacts import ArcMap
+from .artifacts import ArcMap, PendingEpisode
 from .canon_store import CanonStore
 from .canonicalizer import canonicalize_episode, commit_episode_state
 from .context_pack import ContextPackBuilder
@@ -53,6 +53,10 @@ class RunConfig:
     # threads. Major seeds cannot all be paid in the final episode.
     converge_within: int = 5
     forbidden_terms: list[str] = field(default_factory=list)
+    # Co-writer mode: hold a passing episode for the author instead of writing
+    # it into canon. Off by default — the unattended 공장형 loop is the point,
+    # and a gate nobody is watching is just a stall.
+    require_approval: bool = False
 
 
 @dataclass
@@ -82,6 +86,35 @@ class RunReport:
     @property
     def committed_episodes(self) -> int:
         return sum(1 for o in self.outcomes if o.committed)
+
+
+def accept_pending(llm: LLM, store: CanonStore) -> bool:
+    """The author says yes: advance every ledger and extract the canon delta.
+
+    Returns False when nothing was waiting, so a double-accept is a no-op
+    rather than a crash.
+    """
+    pending = store.pending_episode()
+    if pending is None:
+        return False
+    commit_episode_state(store, pending.draft, pending.beats,
+                         payoff_landed=pending.payoff_landed)
+    canonicalize_episode(llm, store, pending.draft)
+    store.clear_pending()
+    return True
+
+
+def reject_pending(store: CanonStore) -> bool:
+    """The author says no: drop the draft, touch no ledger.
+
+    The next run rewrites that episode number from the same state, because the
+    cursor never moved — nothing about a rejected episode was persisted beyond
+    the prose file the author was reading.
+    """
+    if store.pending_episode() is None:
+        return False
+    store.clear_pending()
+    return True
 
 
 def resolve_target_episodes(flag: int | None,
@@ -182,6 +215,15 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
     consecutive_failures = 0
     start = store.latest_episode_number() + 1
 
+    held = store.pending_episode()
+    if held is not None:
+        # Episode N+1 is planned from N's canon and summary, so writing it now
+        # would build on state the author may be about to reject.
+        report.stopped_because = (
+            f"{held.draft.episode_number}화가 작가 승인을 기다리는 중입니다 — "
+            "승인하거나 반려한 뒤 다시 실행하세요.")
+        return report
+
     episode = start
     while episode <= cfg.target_episodes:
         # Budget is checked BEFORE spending, so the cap is a ceiling rather
@@ -211,7 +253,18 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
 
         blocked = blocks_acceptance(continuity)
         passed = bool(result.passed) and not blocked
-        if passed:
+        findings = list(dict.fromkeys(
+            f"[{v.severity}] {v.rule} — {v.evidence}"
+            for v in list(continuity) + list(result.remaining) + list(craft.findings)
+            if v.evidence))
+        if passed and cfg.require_approval:
+            # Co-writer mode: the machine gate passed, the author has not. Hold
+            # it — committing now would lock an episode they may reject into
+            # every later episode's context.
+            store.hold_episode(PendingEpisode(
+                draft=result.draft, beats=beats, score=result.score,
+                payoff_landed=craft.payoff_landed, findings=findings))
+        elif passed:
             commit_episode_state(store, result.draft, beats,
                                  payoff_landed=craft.payoff_landed)
             canonicalize_episode(llm, store, result.draft)
@@ -219,21 +272,21 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
         else:
             consecutive_failures += 1
 
+        committed = passed and not cfg.require_approval
         report.outcomes.append(EpisodeOutcome(
-            episode=episode, passed=passed, committed=passed,
+            episode=episode, passed=passed, committed=committed,
             chars=result.draft.char_count, score=result.score,
             continuity_blockers=sum(1 for v in continuity if v.severity == "blocker"),
             craft_findings=len(craft.findings),
             reason="" if passed else _why(result, continuity, blocked),
             prose=result.draft.prose,
-            # deterministic_findings runs inside the revise loop AND inside
-            # check_continuity, so the same breach arrives twice. Reported
-            # twice it makes the episode look worse than it is; dict.fromkeys
-            # keeps the first occurrence and the order.
-            findings=list(dict.fromkeys(
-                f"[{v.severity}] {v.rule} — {v.evidence}"
-                for v in list(continuity) + list(result.remaining) + list(craft.findings)
-                if v.evidence))))
+            findings=findings))
+
+        if passed and cfg.require_approval:
+            report.stopped_because = (
+                f"{episode}화 집필 완료 — 작가 승인 대기 중. "
+                "읽어보고 승인하거나 반려한 뒤 다시 실행하세요.")
+            break
 
         if not passed:
             # Retry the SAME episode. Advancing would leave a hole in the

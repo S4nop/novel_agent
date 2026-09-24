@@ -231,6 +231,21 @@ class PlannedThread(BaseModel):
     planted_as: str = ""                           # canonical seed_id once planted
 
 
+class PendingEpisode(BaseModel):
+    """An episode that cleared the machine gate and is waiting for the author.
+
+    Held rather than committed: passing the automated gate used to mean writing
+    straight into canon, so an episode the author disliked was already locked
+    into every later episode's context before they could read it. Persisted so
+    the review can span sessions.
+    """
+    draft: "Draft"
+    beats: "BeatSheet"
+    score: int = 0
+    payoff_landed: bool | None = None
+    findings: list[str] = Field(default_factory=list)
+
+
 # ── derived / runtime artifacts ──────────────────────────────────────────────
 class FactRequest(BaseModel):
     """The Drafter's request for a canon fact it needs but lacks (DESIGN §1).
@@ -296,4 +311,5 @@ class CanonDelta(BaseModel):
 
 
 ArcMap.model_rebuild()
+PendingEpisode.model_rebuild()
 PlannedThread.model_rebuild()

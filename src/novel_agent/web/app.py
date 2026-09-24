@@ -307,6 +307,64 @@ def arcs_put(pid: str, body: ArcMapIn):
     return state["arc_map"]
 
 
+@app.get("/api/projects/{pid}/pending")
+def pending_get(pid: str):
+    """The episode waiting for the author, if any.
+
+    Passing the automated gate used to mean committing to canon immediately, so
+    an episode the author disliked was already locked into every later
+    episode's context before they could read it.
+    """
+    held = CanonStore(_dir(pid) / "_novel").pending_episode()
+    if held is None:
+        return {"episode": None}
+    return {
+        "episode": held.draft.episode_number,
+        "prose": held.draft.prose,
+        "chars": held.draft.char_count,
+        "score": held.score,
+        "findings": held.findings,
+        "hook": held.beats.opening_hook,
+        "progression": held.beats.the_one_progression,
+        "cliffhanger": held.beats.closing_cliffhanger,
+    }
+
+
+@app.post("/api/projects/{pid}/pending/accept")
+def pending_accept(pid: str):
+    """Advance every ledger and extract the canon delta — the point at which
+    the episode becomes something later episodes are written from."""
+    from ..driver import accept_pending
+
+    store = CanonStore(_dir(pid) / "_novel")
+    if store.pending_episode() is None:
+        raise HTTPException(400, "승인 대기 중인 화가 없습니다")
+
+    def run():
+        state = _load(pid)
+        llm, usage = _llm(state)
+        n = store.pending_episode().draft.episode_number
+        accept_pending(llm, store)
+        _record_usage(state, usage)
+        _save(pid, state)
+        return {"accepted": n}
+    return _guard(run)
+
+
+@app.post("/api/projects/{pid}/pending/reject")
+def pending_reject(pid: str):
+    """Drop the draft, touch no ledger. The next run rewrites that episode."""
+    from ..driver import reject_pending
+
+    store = CanonStore(_dir(pid) / "_novel")
+    held = store.pending_episode()
+    if held is None:
+        raise HTTPException(400, "승인 대기 중인 화가 없습니다")
+    n = held.draft.episode_number
+    reject_pending(store)
+    return {"rejected": n}
+
+
 @app.get("/api/projects/{pid}/seeds")
 def seeds_get(pid: str):
     """The 떡밥 ledger, open threads first — what the story still owes."""

@@ -300,3 +300,84 @@ def test_a_finding_is_reported_once_however_many_tracks_produced_it(tmp_path):
     findings = report.outcomes[0].findings
     assert any("없는사람" in f for f in findings)          # it really fired
     assert len(findings) == len(set(findings))
+
+
+# ── human accept gate (co-writer mode) ──────────────────────────────────────
+# Passing the automated gate meant committing to canon immediately, so an
+# episode the author disliked was already locked into every later episode's
+# context before they could read it.
+
+def test_a_passing_episode_is_held_for_review_when_approval_is_required(tmp_path):
+    store = _store(tmp_path)
+    report = run_serial(FakeLLM(), store,
+                        config=RunConfig(target_episodes=3, require_approval=True))
+
+    assert report.committed_episodes == 0
+    assert store.latest_episode_number() == 0
+    assert store.load_summary().story_so_far == ""      # canon untouched
+    assert store.pending_episode() is not None
+
+
+def test_the_run_stops_and_says_what_is_waiting(tmp_path):
+    report = run_serial(FakeLLM(), _store(tmp_path),
+                        config=RunConfig(target_episodes=3, require_approval=True))
+
+    assert "1화" in report.stopped_because
+    assert "승인" in report.stopped_because
+    assert report.outcomes[-1].passed is True           # it passed the machine
+    assert report.outcomes[-1].committed is False       # but is not canon yet
+
+
+def test_the_held_prose_is_on_disk_so_the_author_can_read_it(tmp_path):
+    store = _store(tmp_path)
+    run_serial(FakeLLM(), store, config=RunConfig(target_episodes=3,
+                                                  require_approval=True))
+    assert store.pending_episode().draft.prose == CLEAN
+
+
+def test_accepting_commits_the_episode_and_clears_the_hold(tmp_path):
+    from novel_agent.driver import accept_pending
+
+    store = _store(tmp_path)
+    llm = FakeLLM()
+    run_serial(llm, store, config=RunConfig(target_episodes=3, require_approval=True))
+
+    accept_pending(llm, store)
+
+    assert store.latest_episode_number() == 1
+    assert "1화" in store.load_summary().story_so_far
+    assert store.pending_episode() is None
+
+
+def test_rejecting_leaves_canon_untouched_and_frees_the_episode_to_be_rewritten(tmp_path):
+    from novel_agent.driver import reject_pending
+
+    store = _store(tmp_path)
+    run_serial(FakeLLM(), store, config=RunConfig(target_episodes=3, require_approval=True))
+
+    reject_pending(store)
+
+    assert store.latest_episode_number() == 0
+    assert store.load_summary().story_so_far == ""
+    assert store.pending_episode() is None
+
+
+def test_a_serial_will_not_write_past_an_episode_still_awaiting_review(tmp_path):
+    """Episode N+1 is planned from N's canon and summary, so writing it before
+    N is accepted would build on state the author may be about to reject."""
+    store = _store(tmp_path)
+    run_serial(FakeLLM(), store, config=RunConfig(target_episodes=3, require_approval=True))
+
+    second = run_serial(FakeLLM(), store,
+                        config=RunConfig(target_episodes=3, require_approval=True))
+
+    assert second.outcomes == []
+    assert "승인" in second.stopped_because
+
+
+def test_the_unattended_run_still_commits_without_asking(tmp_path):
+    """require_approval defaults off — the 공장형 loop is the point."""
+    store = _store(tmp_path)
+    report = run_serial(FakeLLM(), store, config=RunConfig(target_episodes=2))
+    assert report.committed_episodes == 2
+    assert store.pending_episode() is None
