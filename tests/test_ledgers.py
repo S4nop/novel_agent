@@ -219,3 +219,18 @@ def test_a_paid_seed_is_not_quietly_reopened_by_abandoning_it():
     led.pay(seed.seed_id, episode=2)
     led.abandon(seed.seed_id, episode=5)
     assert led.seeds[seed.seed_id].status is SeedStatus.PAID
+
+
+def test_a_verdict_lands_on_its_own_episode_in_a_store_that_predates_the_log():
+    """payoff_log was padded to match beat_log AFTER the new entry was appended,
+    so in a store whose log predates the field the verdict landed at index 0.
+    Measured live: 3화's verdict was recorded against 1화 and the two real
+    entries read None."""
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.beat_log = [[F, R], [F, R]]          # committed before payoff_log existed
+    r.payoff_log = []
+
+    r.record_episode([F, R], episode=3, payoff_landed=False)
+
+    assert r.payoff_log == [None, None, False]
+    assert r.episodes_since_payoff == 1     # 3화 delivered nothing; 2화 did

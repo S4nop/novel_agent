@@ -20,6 +20,21 @@
       "reveal",
       "escalation",
       "cliffhanger"
+    ],
+    [
+      "setup",
+      "escalation",
+      "frustration",
+      "reveal",
+      "escalation",
+      "payoff",
+      "reveal",
+      "cliffhanger"
     ]
+  ],
+  "payoff_log": [
+    null,
+    null,
+    null
   ]
 }

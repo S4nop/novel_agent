@@ -43,15 +43,19 @@ class RhythmState(BaseModel):
         history, so the meters are computed from it and re-recording an episode
         replaces its entry instead.
         """
+        # Align FIRST: a store written before payoff_log existed has a full
+        # beat_log and an empty one, and padding after the append put the new
+        # verdict at index 0. Measured live — 3화's verdict was recorded
+        # against 1화 while both real entries read None.
+        while len(self.payoff_log) < len(self.beat_log):
+            self.payoff_log.append(None)
+
         if episode is not None and episode - 1 < len(self.beat_log):
             self.beat_log[episode - 1] = list(beats)
             self.payoff_log[episode - 1] = payoff_landed
         else:
             self.beat_log.append(list(beats))
             self.payoff_log.append(payoff_landed)
-        # stores written before payoff_log existed
-        while len(self.payoff_log) < len(self.beat_log):
-            self.payoff_log.append(None)
 
         debt = since = 0
         for i, tags in enumerate(self.beat_log):

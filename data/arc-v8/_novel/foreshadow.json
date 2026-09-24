@@ -5,6 +5,8 @@
       "description": "카심이 판결마다 보증으로 건 채무가 이번 항소로 동결되며, 승소해도 그의 빚이 줄지 않는 구조가 처음으로 드러난다.",
       "magnitude": "minor",
       "planted_ep": 1,
+      "paid_ep": null,
+      "abandoned_ep": null,
       "reinforced_in": [],
       "intended_payoff": "",
       "due_by_ep": 14,
@@ -15,11 +17,25 @@
       "description": "덕배가 승소했음에도 배상금이 실제로 지급되지 않고 기업 측이 지급 절차를 지연시키고 있다는 문제",
       "magnitude": "minor",
       "planted_ep": 2,
+      "paid_ep": null,
+      "abandoned_ep": null,
       "reinforced_in": [],
       "intended_payoff": "",
       "due_by_ep": 7,
       "status": "planted"
+    },
+    "seed-0003": {
+      "seed_id": "seed-0003",
+      "description": "차대성이 카심에게 더 크고 정치적인 사건을 배정하며 보인 태도 — 단순한 인사 조치인지, 의도된 배치인지 모호한 첫 정황이 남는다.",
+      "magnitude": "minor",
+      "planted_ep": 3,
+      "paid_ep": null,
+      "abandoned_ep": null,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 14,
+      "status": "planted"
     }
   },
-  "next_seq": 3
+  "next_seq": 4
 }
