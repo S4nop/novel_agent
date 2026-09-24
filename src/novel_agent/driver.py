@@ -166,7 +166,7 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
     craft = judge_craft(llm, result.draft, profile, canon, store.load_voice_bible())
     # Track B only. The structural verdict reaches the author through
     # result.remaining, and it is the one judged on the final prose.
-    return beats, result, continuity, list(craft)
+    return beats, result, continuity, craft
 
 
 def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
@@ -212,7 +212,8 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
         blocked = blocks_acceptance(continuity)
         passed = bool(result.passed) and not blocked
         if passed:
-            commit_episode_state(store, result.draft, beats)
+            commit_episode_state(store, result.draft, beats,
+                                 payoff_landed=craft.payoff_landed)
             canonicalize_episode(llm, store, result.draft)
             consecutive_failures = 0
         else:
@@ -222,7 +223,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             episode=episode, passed=passed, committed=passed,
             chars=result.draft.char_count, score=result.score,
             continuity_blockers=sum(1 for v in continuity if v.severity == "blocker"),
-            craft_findings=len(craft),
+            craft_findings=len(craft.findings),
             reason="" if passed else _why(result, continuity, blocked),
             prose=result.draft.prose,
             # deterministic_findings runs inside the revise loop AND inside
@@ -231,7 +232,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             # keeps the first occurrence and the order.
             findings=list(dict.fromkeys(
                 f"[{v.severity}] {v.rule} — {v.evidence}"
-                for v in list(continuity) + list(result.remaining) + list(craft)
+                for v in list(continuity) + list(result.remaining) + list(craft.findings)
                 if v.evidence))))
 
         if not passed:

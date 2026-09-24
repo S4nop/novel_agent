@@ -296,3 +296,31 @@ def test_keep_best_still_rejects_a_dialogue_padded_rewrite_while_a_hook_is_open(
                           target_chars=5200, max_iterations=1,
                           structural_findings=[_hook_finding()])
     assert result.draft.prose == balanced
+
+
+def test_the_revise_call_reuses_the_drafters_cached_prefix():
+    """The drafter puts system + cached_prefix in the system block, and that is
+    where the provider's cache breakpoint sits. The reviser used to send only
+    `system` there and render the prefix into the user turn — a strictly
+    SHORTER prefix, so it could not read the drafter's entry and re-paid full
+    input price for ~3,000 tokens on every iteration. It also made
+    Usage.cache_hit_rate under-report by design, while the guide tells the
+    operator to read a low rate as "the prefix drifted"."""
+    captured = []
+
+    class Capture:
+        def text(self, messages, *, max_tokens=8192):
+            captured.append(messages)
+            return CLEAN
+
+        def structured(self, messages, schema):  # pragma: no cover
+            raise NotImplementedError
+
+    pack = _pack()
+    revise_draft(Capture(), _draft(DIRTY), pack, target_chars=len(CLEAN),
+                 max_iterations=1)
+
+    revise_system = captured[0][0]["content"]
+    draft_system = pack.to_messages()[0]["content"]
+    assert revise_system == draft_system
+    assert pack.cached_prefix not in captured[0][1]["content"]

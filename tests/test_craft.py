@@ -36,8 +36,11 @@ def _canon():
 
 def _judge(report=None, boom=False, prose="본문입니다."):
     llm = StubJudge(report, boom)
+    # the module-level helper returns the findings; the verdict's other half
+    # has its own class below
     return llm, judge_craft(llm, Draft(episode_number=3, prose=prose),
-                            genre_profile(), _canon(), VoiceBible(spec="단문 위주"))
+                            genre_profile(), _canon(),
+                            VoiceBible(spec="단문 위주")).findings
 
 
 def test_a_plot_finding_carries_its_evidence():
@@ -182,3 +185,42 @@ class TestOpeningAndEnding:
             OpeningEndingFindingDraft(part="hook", problem="배경 묘사로 시작한다",
                                       evidence="청사 앞마당은 비어 있었다")]), is_final=True)
         assert [v.rule for v in vs] == [RULE_HOOK]
+
+
+class TestPayoffVerdict:
+    """The rhythm controller was closed-loop on the PLAN: tagging a beat
+    `reveal` reset the 고구마 meter whether or not the prose delivered one.
+    The craft judge already reads the prose, so it reports the verdict too —
+    no extra call."""
+
+    @staticmethod
+    def _judge(landed=None, findings=()):
+        from novel_agent.craft import judge_craft
+        from novel_agent.schemas import CraftReportDraft
+
+        report = CraftReportDraft(findings=list(findings))
+        if landed is not None:
+            report.payoff_landed = landed
+        return judge_craft(StubJudge(report), Draft(episode_number=1, prose="본문 " * 200),
+                           genre_profile(), Canon(), VoiceBible())
+
+    def test_the_judge_reports_whether_a_payoff_actually_landed(self):
+        assert self._judge(landed=False).payoff_landed is False
+        assert self._judge(landed=True).payoff_landed is True
+
+    def test_a_judge_failure_leaves_the_verdict_unknown_not_false(self):
+        """Advisory track: a run must not lose its rhythm because one call
+        errored, and must not be punished for an opinion that never arrived."""
+        from novel_agent.craft import judge_craft
+        v = judge_craft(StubJudge(None, boom=True),
+                        Draft(episode_number=1, prose="본문 " * 200),
+                        genre_profile(), Canon(), VoiceBible())
+        assert v.payoff_landed is None
+        assert v.findings == []
+
+    def test_findings_still_come_through(self):
+        from novel_agent.craft import RULE_GENRE
+        from novel_agent.schemas import CraftFindingDraft
+        v = self._judge(landed=False, findings=[CraftFindingDraft(
+            dimension="genre", problem="사이다가 없다", evidence="인용", severity="major")])
+        assert [f.rule for f in v.findings] == [RULE_GENRE]

@@ -9,7 +9,17 @@
       "intended_payoff": "",
       "due_by_ep": 14,
       "status": "planted"
+    },
+    "seed-0002": {
+      "seed_id": "seed-0002",
+      "description": "덕배가 승소했음에도 배상금이 실제로 지급되지 않고 기업 측이 지급 절차를 지연시키고 있다는 문제",
+      "magnitude": "minor",
+      "planted_ep": 2,
+      "reinforced_in": [],
+      "intended_payoff": "",
+      "due_by_ep": 7,
+      "status": "planted"
     }
   },
-  "next_seq": 2
+  "next_seq": 3
 }

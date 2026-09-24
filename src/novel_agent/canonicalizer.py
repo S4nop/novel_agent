@@ -49,6 +49,8 @@ def commit_episode_state(
     beats: BeatSheet,
     *,
     human_edited: bool = False,
+    # What the craft reader saw in the PROSE. None = not judged.
+    payoff_landed: bool | None = None,
 ) -> EpisodeRecord:
     """Advance every cross-episode ledger and persist the episode.
 
@@ -56,7 +58,11 @@ def commit_episode_state(
     """
     # 1) rhythm — fold this episode's beat types into the running debt meter
     rhythm: RhythmState = store.load_rhythm()
-    rhythm.record_episode(beats.beat_types(), episode=beats.episode_number)
+    # The judge read the PROSE; the beat tags are only what was intended.
+    # Live 2화 tagged a `reveal` the episode never delivered and the meter
+    # reset to 부채 0 while the craft reader reported four straight 고구마.
+    rhythm.record_episode(beats.beat_types(), episode=beats.episode_number,
+                          payoff_landed=payoff_landed)
     store.save_rhythm(rhythm)
 
     # 2) foreshadow — mint canonical ids for planted seeds, mark paid ones

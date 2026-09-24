@@ -471,8 +471,8 @@ def episode(pid: str, body: DraftIn):
         # The structural half must be the verdict on the prose the author is
         # about to read — result.structural when a rewrite happened, otherwise
         # the original judgement still describes it.
-        craft = list(judge_craft(llm, draft, profile, canon,
-                                 store.load_voice_bible())) + list(
+        verdict = judge_craft(llm, draft, profile, canon, store.load_voice_bible())
+        craft = list(verdict.findings) + list(
             result.structural if result else structural)
 
         # The prose file is always written — the author must be able to read a
@@ -488,7 +488,8 @@ def episode(pid: str, body: DraftIn):
         committed = not blocked and (result.passed if result else True)
         canon_delta = None
         if committed:
-            commit_episode_state(store, draft, beats)
+            commit_episode_state(store, draft, beats,
+                                 payoff_landed=verdict.payoff_landed)
             # The LLM half of the Canonicalizer. Runs ONLY on an accepted
             # episode: extracting from a draft that failed the gate would write
             # the contradiction into the source of truth. A failure here costs

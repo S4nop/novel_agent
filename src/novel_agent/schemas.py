@@ -186,6 +186,11 @@ class CraftFindingDraft(BaseModel):
 
 class CraftReportDraft(BaseModel):
     findings: list[CraftFindingDraft] = Field(default_factory=list)
+    payoff_landed: bool = Field(
+        default=True,
+        description="이 화에 독자가 보상(사이다)으로 느낄 장면이 실제로 있었는가. "
+                    "비트시트가 payoff/reveal로 계획했더라도 본문에서 그 해소가 "
+                    "일어나지 않았으면 false.")
 
 
 # ── hook / cliffhanger (연독률의 두 지점) ─────────────────────────────────────

@@ -20,6 +20,8 @@ reviser's fix instructions, and the API/UI unchanged.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .artifacts import Canon, Draft, GenreProfile, VoiceBible
 from .llm import LLM
 from .prompt_store import render
@@ -63,6 +65,18 @@ def _voices(canon: Canon, voice: VoiceBible) -> str:
     return "\n".join(lines) or "- 없음"
 
 
+@dataclass(frozen=True)
+class CraftVerdict:
+    """What the craft reader saw. Advisory — nothing here blocks a commit."""
+    findings: list[Violation]
+    # Did a payoff actually land in the PROSE? None when the judge did not run.
+    # The rhythm controller used to be closed-loop on the plan: tagging a beat
+    # `reveal` reset the 고구마 meter whether or not the episode delivered one,
+    # measured live at 부채 0 while this reader reported four straight 고구마
+    # beats with no 사이다.
+    payoff_landed: bool | None = None
+
+
 def judge_craft(
     llm: LLM,
     draft: Draft,
@@ -71,7 +85,7 @@ def judge_craft(
     voice: VoiceBible,
     *,
     max_findings: int = 8,
-) -> list[Violation]:
+) -> CraftVerdict:
     """Rubric-scored craft findings. Never blocking, never fatal.
 
     A judge failure returns no findings rather than raising: craft is advisory,
@@ -91,7 +105,7 @@ def judge_craft(
             CraftReportDraft,
         )
     except Exception:  # noqa: BLE001 — advisory track
-        return []
+        return CraftVerdict(findings=[])
 
     out: list[Violation] = []
     for f in (report.findings or [])[:max_findings]:
@@ -106,7 +120,8 @@ def judge_craft(
             rule=rule, severity=severity, count=1, limit="0건", limit_num=0,
             evidence=f"{f.problem} — 근거: {f.evidence}"))
     order = {"major": 0, "minor": 1}
-    return sorted(out, key=lambda v: order[v.severity])
+    return CraftVerdict(findings=sorted(out, key=lambda v: order[v.severity]),
+                        payoff_landed=bool(report.payoff_landed))
 
 
 # ── hook and 절단 — the two points 연독률 actually turns on ────────────────────

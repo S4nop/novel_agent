@@ -176,10 +176,17 @@ def revise_draft(
         iterations += 1
         prose = llm.text(
             [
-                {"role": "system", "content": pack.system},
+                # Byte-identical to the drafter's system block, so the
+                # provider's cache breakpoint lands in the same place and this
+                # call READS that entry. Sending only `system` here put the
+                # prefix in the user turn — after the breakpoint — so every
+                # iteration re-paid full input price for ~3,000 tokens and
+                # wrote a second, shorter cache entry of its own.
+                {"role": "system",
+                 "content": f"{pack.system}\n\n{pack.cached_prefix}"},
                 {"role": "user", "content": render(
                     "revise_instruction",
-                    prefix=pack.cached_prefix, suffix=pack.volatile_suffix,
+                    prefix="", suffix=pack.volatile_suffix,
                     findings=_fix_instructions(violations, length),
                     prose=best.prose)},
             ],

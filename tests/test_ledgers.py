@@ -129,3 +129,57 @@ def test_a_paid_seed_is_never_offered_for_reinforcement():
                                  due_by_ep=3), episode=1)
     led.pay(seed.seed_id, episode=2)
     assert led.ripening(2) == []
+
+
+# ── the rhythm controller believes the PLAN, not the prose ──────────────────
+
+def test_a_payoff_the_prose_never_delivered_does_not_pay_down_the_debt():
+    """Measured on a live 2화: beat_log [setup, escalation, frustration, reveal,
+    escalation, cliffhanger] left the meter at 부채 0 · 무보상 0, while the craft
+    judge — which reads the prose — reported '사이다 없이 고구마성 전개만 네 차례
+    연속'. The label was enough to satisfy the controller."""
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.record_episode([F, F], episode=1)
+    r.record_episode([F, R], episode=2, payoff_landed=False)
+
+    assert r.frustration_debt == 3
+    assert r.episodes_since_payoff == 2
+
+
+def test_a_delivered_payoff_still_pays_the_debt_down():
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.record_episode([F, F], episode=1)
+    r.record_episode([F, R], episode=2, payoff_landed=True)
+
+    assert r.episodes_since_payoff == 0
+
+
+def test_an_unjudged_episode_falls_back_to_its_beat_tags():
+    """judge_craft is advisory and returns nothing on failure — a run must not
+    lose its rhythm because one judge call errored."""
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.record_episode([F, R], episode=1)
+    assert r.episodes_since_payoff == 0
+
+
+def test_the_verdict_survives_a_later_episode_being_recorded():
+    """The meters are recomputed from the log, so the judged outcome has to be
+    part of that log or the next episode silently restores the label."""
+    r = RhythmState(max_consecutive_frustration=2, target_catharsis_cadence=99)
+    r.record_episode([F, R], episode=1, payoff_landed=False)
+    r.record_episode([F], episode=2)
+
+    assert r.episodes_since_payoff == 2
+
+
+def test_a_paid_seed_records_the_episode_that_paid_it():
+    """pay() took an episode and dropped it, so plant-to-payoff distance could
+    not be measured after the fact — the question "is 2화 too fast?" could only
+    be answered by reading the planner's intent."""
+    led = ForeshadowLedger()
+    seed = led.plant(PlannedSeed(proposed_seed_id="p1", description="떡밥A",
+                                 due_by_ep=9), episode=2)
+    led.pay(seed.seed_id, episode=7)
+
+    paid = led.seeds[seed.seed_id]
+    assert (paid.planted_ep, paid.paid_ep) == (2, 7)

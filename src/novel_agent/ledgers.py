@@ -26,9 +26,15 @@ class RhythmState(BaseModel):
     target_catharsis_cadence: int = 3       # a payoff must land at least every N eps
     episodes_since_payoff: int = 0
     beat_log: list[list[BeatType]] = Field(default_factory=list)
+    # Whether a payoff actually LANDED in the prose, per episode, as judged by
+    # the craft reader. None = not judged, fall back to the beat tags. Kept
+    # beside the log rather than folded into it: the meters are recomputed from
+    # the log, so a verdict held anywhere else is lost on the next episode.
+    payoff_log: list[bool | None] = Field(default_factory=list)
 
     def record_episode(self, beats: list[BeatType], *,
-                       episode: int | None = None) -> None:
+                       episode: int | None = None,
+                       payoff_landed: bool | None = None) -> None:
         """Record one accepted episode's beat tags and re-derive the meters.
 
         This used to fold straight into the counters, which has no inverse: a
@@ -39,14 +45,26 @@ class RhythmState(BaseModel):
         """
         if episode is not None and episode - 1 < len(self.beat_log):
             self.beat_log[episode - 1] = list(beats)
+            self.payoff_log[episode - 1] = payoff_landed
         else:
             self.beat_log.append(list(beats))
+            self.payoff_log.append(payoff_landed)
+        # stores written before payoff_log existed
+        while len(self.payoff_log) < len(self.beat_log):
+            self.payoff_log.append(None)
 
         debt = since = 0
-        for tags in self.beat_log:
+        for i, tags in enumerate(self.beat_log):
             frustration = sum(1 for b in tags if b in _FRUSTRATION_BEATS)
             debt += frustration
-            if any(b in _PAYOFF_BEATS for b in tags):
+            # A planner label is an intention; the judge read the prose. Live
+            # 2화 tagged a `reveal` the prose never delivered, and the meter
+            # reset to 부채 0 while the craft judge reported four straight
+            # 고구마 beats with no 사이다.
+            judged = self.payoff_log[i] if i < len(self.payoff_log) else None
+            landed = judged if judged is not None else any(
+                b in _PAYOFF_BEATS for b in tags)
+            if landed:
                 debt = max(0, debt - frustration - 1)
                 since = 0
             else:
@@ -112,7 +130,13 @@ class ForeshadowLedger(BaseModel):
             seed.status = SeedStatus.REINFORCED
 
     def pay(self, seed_id: str, episode: int) -> None:
-        self.seeds[seed_id].status = SeedStatus.PAID
+        """Close a seed, recording WHEN — the episode argument used to be
+        dropped, so plant-to-payoff distance could not be measured after the
+        fact and "is a 2화 payoff too fast?" could only be answered by reading
+        the planner's intent."""
+        seed = self.seeds[seed_id]
+        seed.status = SeedStatus.PAID
+        seed.paid_ep = episode
 
     def _open(self, seed: ForeshadowSeed) -> bool:
         return seed.status not in (SeedStatus.PAID, SeedStatus.ABANDONED)
