@@ -188,16 +188,17 @@ def test_transient_upstream_failure_is_retried_and_then_succeeds(monkeypatch):
 
 # ── cost meter ───────────────────────────────────────────────────────────────
 def test_cache_tiers_are_metered_at_their_discounted_rates():
-    usage = Usage(price_in_per_1m=3.00, price_out_per_1m=15.00)
+    usage = Usage(price_in_per_1m=4.00, price_out_per_1m=20.00,
+                  cache_read_multiplier=0.05)
     llm, _ = make_llm(ok_stream(input_tokens=1000, cache_read=10_000,
                                 cache_write=2_000, output_tokens=500),
                       usage=usage)
     llm.text(MESSAGES)
-    # 1000 full + 10000*0.1 + 2000*1.25 = 4500 billable input tokens
+    # 1000 full + 10000*0.05 + 2000*1.25 = 4000 billable input tokens
     assert usage.input_tokens == 1000
     assert usage.cached_tokens == 10_000
     assert usage.cache_write_tokens == 2_000
-    assert usage.usd == pytest.approx(4500 / 1e6 * 3.00 + 500 / 1e6 * 15.00)
+    assert usage.usd == pytest.approx(4000 / 1e6 * 4.00 + 500 / 1e6 * 20.00)
 
 
 def test_thinking_is_not_double_billed_on_top_of_output():
@@ -250,7 +251,7 @@ def test_unknown_provider_names_the_valid_options(monkeypatch):
 def test_token_count_uses_the_real_endpoint_for_korean_text():
     llm, sent = make_llm(ok_json({"input_tokens": 1234}))
     assert llm.count_tokens("한국어 본문입니다.") == 1234
-    assert sent[0]["model"] == "claude-sonnet-5"
+    assert sent[0]["model"] == "claude-opus-5-5"
 
 
 def test_a_billing_failure_is_not_retried(monkeypatch):
@@ -288,3 +289,25 @@ def test_a_transient_error_is_still_retried(monkeypatch):
 
     llm, _ = make_llm(handler)
     assert llm.text(MESSAGES) == "복구"
+
+
+# ── cost meter ──────────────────────────────────────────────────────────────
+def test_a_cache_read_is_billed_at_the_models_own_multiplier():
+    """Opus 5.5 bills a cache hit at 0.05x base input, not the 0.1x every other
+    model uses. A hardcoded 0.1 overstates the one cost the prompt-cache work
+    exists to reduce."""
+    from novel_agent.llm import Usage
+
+    u = Usage(price_in_per_1m=4.0, price_out_per_1m=20.0, cache_read_multiplier=0.05)
+    u.add(input_tokens=0, output_tokens=0, cached_tokens=1_000_000)
+    assert u.usd == pytest.approx(0.20)
+
+
+def test_a_model_on_the_standard_multiplier_is_metered_at_that():
+    """Every model but Opus 5.5 / Fable 5.1 bills a cache hit at 0.1x, so the
+    caller sets it — the module default follows the configured model."""
+    from novel_agent.llm import Usage
+
+    u = Usage(price_in_per_1m=2.0, price_out_per_1m=10.0, cache_read_multiplier=0.1)
+    u.add(input_tokens=0, output_tokens=0, cached_tokens=1_000_000)
+    assert u.usd == pytest.approx(0.20)

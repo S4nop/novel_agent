@@ -36,16 +36,17 @@ python -m novel_agent.web       # → http://127.0.0.1:8000
 
 ```ini
 NOVEL_LLM_PROVIDER=anthropic       # anthropic (default) | gemini | openai
-NOVEL_LLM_MODEL=claude-sonnet-5
+NOVEL_LLM_MODEL=claude-opus-5-5
 NOVEL_LLM_API_KEY=...
 # NOVEL_LLM_EFFORT=high            # low | medium | high | xhigh | max (anthropic only)
 # NOVEL_LLM_PRESET=moonshot        # openai | moonshot | deepseek | upstage | openrouter
 # NOVEL_LLM_BASE_URL=http://localhost:11434/v1   # or any custom endpoint
-NOVEL_PRICE_IN_PER_1M=3.00         # cost meter, match your model
-NOVEL_PRICE_OUT_PER_1M=15.00
+NOVEL_PRICE_IN_PER_1M=4.00         # cost meter, match your model
+NOVEL_PRICE_OUT_PER_1M=20.00
+# NOVEL_CACHE_READ_MULTIPLIER=0.05 # 0.05 on opus-5-5, 0.1 on most models
 ```
 
-The default is **Claude Sonnet 5** via the official `anthropic` SDK. Two things it does
+The default is **Claude Opus 5.5** via the official `anthropic` SDK. Two things it does
 that Gemini didn't: prompt caching is **explicit** (one `cache_control` breakpoint on the
 ContextPack's stable prefix — watch `Usage.cache_hit_rate`), and adaptive thinking shares
 the `max_tokens` budget with the prose, so the adapter reserves headroom. `provider=gemini`

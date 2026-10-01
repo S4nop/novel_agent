@@ -4,7 +4,7 @@ Provider-agnostic: the model is chosen entirely from the environment, so
 swapping providers is a .env edit, not a code change. See `.env.example`.
 
     NOVEL_LLM_PROVIDER = anthropic | gemini | openai
-    NOVEL_LLM_MODEL    = claude-sonnet-5 | gemini-3.6-flash | kimi-k3 | ...
+    NOVEL_LLM_MODEL    = claude-opus-5-5 | gemini-3.6-flash | kimi-k3 | ...
     NOVEL_LLM_API_KEY  = ...
     NOVEL_LLM_EFFORT   = low | medium | high | xhigh | max  (anthropic only)
     NOVEL_LLM_BASE_URL = (openai-compatible providers only)
@@ -40,19 +40,22 @@ class Settings(BaseSettings):
 
     # ── LLM provider ────────────────────────────────────────────────────────
     llm_provider: str = "anthropic"       # "anthropic" | "gemini" | "openai"
-    llm_model: str = "claude-sonnet-5"
+    llm_model: str = "claude-opus-5-5"
     llm_api_key: str = ""
     llm_base_url: str = ""                # required for provider=openai unless preset
     llm_preset: str = ""                  # optional key into KNOWN_BASE_URLS
-    # Reasoning depth (anthropic only). "high" is the Sonnet 5 API default;
+    # Reasoning depth (anthropic only). "high" is the API default;
     # "medium" is the cost/latency step-down for a long unattended serial.
     llm_effort: str = "high"
 
     # Pricing for the cost meter (USD per 1M tokens) — override per model.
-    # Defaults are claude-sonnet-5 standard rates ($2/$10 introductory
-    # through 2026-08-31; the standard rate keeps the meter honest after that).
-    price_in_per_1m: float = 3.00
-    price_out_per_1m: float = 15.00
+    # Defaults are claude-opus-5-5. Sonnet 5 is $2/$10, Opus 5 $5/$25,
+    # Fable 5.1 $10/$50. Verified 2026-10-02.
+    price_in_per_1m: float = 4.00
+    price_out_per_1m: float = 20.00
+    # A cache hit costs this much of the input price. 0.05 on Opus 5.5 and
+    # 0.025 on Fable 5.1 / Mythos 5.1; every other model uses 0.1.
+    cache_read_multiplier: float = 0.05
     usd_krw: float = 1400.0
 
     # Root directory for projects created through the web UI.
@@ -76,6 +79,7 @@ class Settings(BaseSettings):
             "key_hint": (self.llm_api_key[:6] + "…") if self.llm_api_key else "",
             "ui_language": self.ui_language,
             "price_in_per_1m": self.price_in_per_1m,
+            "cache_read_multiplier": self.cache_read_multiplier,
             "price_out_per_1m": self.price_out_per_1m,
         }
 

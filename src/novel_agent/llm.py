@@ -1,6 +1,6 @@
 """Provider adapter — the ONLY module that talks to the model (DESIGN §5).
 
-Default model for every LLM role: **Claude Sonnet 5** (`claude-sonnet-5`).
+Default model for every LLM role: **Claude Opus 5.5** (`claude-opus-5-5`).
 Keeping this behind a thin adapter is what makes the model swappable without
 touching any node; `gemini` and `openai` remain selectable from `.env`.
 
@@ -8,7 +8,7 @@ Deliberately NOT a LangChain wrapper: nodes call `f(inputs) -> validated output`
 so the deterministic core stays testable (tests inject a fake at this seam).
 
 ANTHROPIC SPECIFICS THAT SHAPE THIS FILE
-  * Adaptive thinking is ON by default on Sonnet 5, and `max_tokens` caps
+  * Adaptive thinking is ON by default, and `max_tokens` caps
     thinking + visible text TOGETHER. A budget sized for prose alone truncates
     mid-sentence, so `text()` adds THINKING_HEADROOM on top of the caller's ask.
   * Prompt caching is EXPLICIT here (Gemini's was implicit). The ContextPack's
@@ -16,7 +16,7 @@ ANTHROPIC SPECIFICS THAT SHAPE THIS FILE
     `cache_control` breakpoint goes — see ContextPackBuilder for why the prefix
     is byte-stable. Below ~1024 tokens a prefix silently will not cache.
   * `temperature`/`top_p`/`top_k` and `thinking.budget_tokens` are REJECTED
-    (400) on Sonnet 5 — steer with the prompt, size effort with `effort`.
+    (400) on Claude 5 models — steer with the prompt, size with `effort`.
   * A declined request returns HTTP 200 with `stop_reason == "refusal"`, so the
     refusal check must happen before reading content.
 
@@ -36,15 +36,19 @@ from typing import Protocol, TypeVar
 
 from pydantic import BaseModel
 
-# Default per-1M-token USD prices (claude-sonnet-5, standard rate). Anthropic's
-# introductory $2/$10 runs through 2026-08-31; defaulting to the standard rate
-# keeps the meter honest past that date. Override via Usage(...) or NOVEL_PRICE_*.
-PRICE_IN_PER_1M = 3.00
-PRICE_OUT_PER_1M = 15.00
+# Default per-1M-token USD prices (claude-opus-5-5). Override via Usage(...)
+# or NOVEL_PRICE_*. Verified against the pricing page on 2026-10-02 — the meter
+# had been carrying Sonnet 5's cancelled $3/$15 increase, overstating every
+# reported cost by half.
+PRICE_IN_PER_1M = 4.00
+PRICE_OUT_PER_1M = 20.00
 USD_KRW = 1400
 
 # Cache-tier multipliers on the INPUT price (Anthropic prompt caching).
-CACHE_READ_MULTIPLIER = 0.1     # served from cache
+# Opus 5.5 and Fable 5.1 bill a cache hit below the usual 0.1x, so this is a
+# per-model value rather than a constant — hardcoding 0.1 overstates the one
+# cost the prompt-cache work exists to reduce.
+CACHE_READ_MULTIPLIER = 0.05    # served from cache (claude-opus-5-5)
 CACHE_WRITE_MULTIPLIER = 1.25   # written to cache, 5-minute TTL
 
 # Room for adaptive thinking on top of the caller's visible-output budget.
@@ -139,6 +143,7 @@ class Usage:
     calls: int = 0
     price_in_per_1m: float = PRICE_IN_PER_1M
     price_out_per_1m: float = PRICE_OUT_PER_1M
+    cache_read_multiplier: float = CACHE_READ_MULTIPLIER
     usd_krw: float = USD_KRW
 
     def add(self, *, input_tokens: int, output_tokens: int,
@@ -154,7 +159,7 @@ class Usage:
     @property
     def usd(self) -> float:
         billable_in = (self.input_tokens
-                       + self.cached_tokens * CACHE_READ_MULTIPLIER
+                       + self.cached_tokens * self.cache_read_multiplier
                        + self.cache_write_tokens * CACHE_WRITE_MULTIPLIER)
         out = self.output_tokens + self.thinking_tokens
         return (billable_in / 1e6 * self.price_in_per_1m
@@ -291,7 +296,7 @@ class GeminiLLM:
 class AnthropicLLM:
     """Claude via the official `anthropic` SDK. Default provider.
 
-    Adaptive thinking is left at the Sonnet 5 default (on) — do not pass a
+    Adaptive thinking is left at the model default (on) — do not pass a
     `thinking` block or sampling parameters, both are 400s on this model.
     Depth is sized with `effort`; `high` is the API default.
     """
@@ -300,7 +305,7 @@ class AnthropicLLM:
         self,
         *,
         api_key: str,
-        model: str = "claude-sonnet-5",
+        model: str = "claude-opus-5-5",
         effort: str = "high",
         cache_prefix: bool = True,
         usage: Usage | None = None,
@@ -476,7 +481,7 @@ PROVIDERS = ("anthropic", "gemini", "openai")
 def build_llm(settings=None, **overrides) -> LLM:
     """Construct the LLM named by the environment (config.Settings).
 
-    provider=anthropic → official anthropic SDK (default; Claude Sonnet 5).
+    provider=anthropic → official anthropic SDK (default; Claude Opus 5.5).
     provider=gemini    → native google-genai (keeps safety-setting control).
     provider=openai    → any OpenAI-compatible endpoint via base_url.
     """
@@ -488,6 +493,7 @@ def build_llm(settings=None, **overrides) -> LLM:
     usage = overrides.pop("usage", None) or Usage(
         price_in_per_1m=settings.price_in_per_1m,
         price_out_per_1m=settings.price_out_per_1m,
+        cache_read_multiplier=settings.cache_read_multiplier,
         usd_krw=settings.usd_krw,
     )
     provider = str(overrides.pop("provider", settings.llm_provider)).lower()

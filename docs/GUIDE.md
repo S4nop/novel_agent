@@ -71,10 +71,10 @@ Get a key at [console.anthropic.com](https://console.anthropic.com/settings/keys
 
 ```ini
 NOVEL_LLM_PROVIDER=anthropic
-NOVEL_LLM_MODEL=claude-sonnet-5
+NOVEL_LLM_MODEL=claude-opus-5-5
 NOVEL_LLM_API_KEY=sk-ant-...
-NOVEL_PRICE_IN_PER_1M=3.00
-NOVEL_PRICE_OUT_PER_1M=15.00
+NOVEL_PRICE_IN_PER_1M=4.00
+NOVEL_PRICE_OUT_PER_1M=20.00
 ```
 
 Optional: `NOVEL_LLM_EFFORT=high` (`low` | `medium` | `high` | `xhigh` | `max`) sets how
@@ -125,8 +125,8 @@ NOVEL_LLM_PROVIDER=openai
 NOVEL_LLM_MODEL=kimi-k3
 NOVEL_LLM_PRESET=moonshot        # openai | moonshot | deepseek | upstage | openrouter
 NOVEL_LLM_API_KEY=sk-...
-NOVEL_PRICE_IN_PER_1M=3.00       # keep the cost meter honest
-NOVEL_PRICE_OUT_PER_1M=15.00
+NOVEL_PRICE_IN_PER_1M=4.00       # keep the cost meter honest
+NOVEL_PRICE_OUT_PER_1M=20.00
 ```
 
 Local models work too:
@@ -354,8 +354,8 @@ If your model fails #1 or #2, no amount of pipeline work fixes it.
 | Symptom | Cause / fix |
 |---|---|
 | `NOVEL_LLM_API_KEY is not set` | `.env` missing or wrong var name. Vars are `NOVEL_LLM_*` (not `NOVEL_GEMINI_*`). |
-| `429 rate_limit_error` / `RESOURCE_EXHAUSTED` | Quota. On Anthropic, check your tier's limits in the console (Claude Sonnet 5 has its own pool). Gemini free tier = ~20 req/day **per model**, reset midnight **US Pacific**. |
-| `400 … temperature` / `budget_tokens` | Sonnet 5 rejects sampling params and thinking budgets. Don't add them — steer with the prompt, size with `NOVEL_LLM_EFFORT`. |
+| `429 rate_limit_error` / `RESOURCE_EXHAUSTED` | Quota. On Anthropic, check your tier's limits in the console (each model has its own pool). Gemini free tier = ~20 req/day **per model**, reset midnight **US Pacific**. |
+| `400 … temperature` / `budget_tokens` | Claude 5 models reject sampling params and thinking budgets. Don't add them — steer with the prompt, size with `NOVEL_LLM_EFFORT`. |
 | Cost panel shows a 0% cache hit rate | The stable prefix stopped being byte-stable, so every call pays full input price. Something nondeterministic leaked into the ContextPack prefix. |
 | `503 UNAVAILABLE` | Provider demand spike. The adapter already retries with backoff; wait or switch model. |
 | Empty / truncated reply | **Reasoning models spend `max_output_tokens` on thinking first.** A small budget returns garbage — raise `max_tokens`. |
@@ -398,17 +398,19 @@ compose.
 
 ## 10. Cost expectations
 
-Measured on Gemini 3.6 Flash at $1.50/$7.50 (₩ at 1,400/USD). **On the current default,
-Claude Sonnet 5 at $3/$15, roughly double these figures** before prompt caching — the
-table has not been re-measured since the switch:
+Measured 2026-09/10 on a live 4-episode run (`data/arc-v8`), ₩ at 1,400/USD. The
+runs were metered at $3/$15 — Sonnet 5's **cancelled** increase — so the figures they
+printed were half again too high. Both columns below are corrected.
 
-| Operation | Calls | Cost |
-|---|---|---|
-| Interview question generation | 1 | ~₩40 |
-| Genre + 3 premise candidates | 4 | ~₩130 |
-| Canon + voice bible | 1 | ~₩50 |
-| Episode: plan + draft + 2–3 revise passes | 5–6 | ~₩200–430 |
-| **Full setup + episode 1** | **~10** | **~₩430** (≈₩900 on Sonnet 5) |
+| Operation | Calls | Sonnet 5 ($2/$10) | Opus 5.5 ($4/$20) |
+|---|---|---|---|
+| Setup: genre + 3 premises + canon + voice + arc plan | 7 | ~₩650 | ~₩1,300 |
+| Episode: plan + draft + 3 revise + 3 judges | 8–10 | ~₩1,500–1,800 | ~₩3,000–3,600 |
+| **Setup + episode 1** | **~17** | **~₩2,400** | **~₩4,800** |
+| **30-episode serial** | ~280 | **~₩50,000** | **~₩100,000** |
+
+Opus 5.5 bills a cache hit at 0.05× input rather than the usual 0.1×, so a run with a
+warm prefix lands under the straight 2× above.
 
 Generation cost is trivial next to any commercial outcome. Per this project's market
 research, **distribution — not cost — is the binding constraint.** Do not optimize the

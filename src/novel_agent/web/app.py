@@ -86,6 +86,7 @@ def _llm(state: dict):
         cache_write_tokens=u.get("cache_write_tokens", 0),
         thinking_tokens=u.get("thinking_tokens", 0), calls=u.get("calls", 0),
         price_in_per_1m=s.price_in_per_1m, price_out_per_1m=s.price_out_per_1m,
+        cache_read_multiplier=s.cache_read_multiplier,
         usd_krw=s.usd_krw,
     )
     return build_llm(s, usage=usage), usage

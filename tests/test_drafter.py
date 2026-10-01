@@ -73,6 +73,6 @@ def test_drafter_sends_system_prefix_then_volatile_user_turn():
 def test_usage_accumulates_cost_in_usd_and_krw():
     u = Usage()
     u.add(input_tokens=1_000_000, output_tokens=1_000_000)
-    assert round(u.usd, 2) == 18.00       # claude-sonnet-5: $3 in + $15 out
+    assert round(u.usd, 2) == 24.00       # claude-opus-5-5: $4 in + $20 out
     assert u.calls == 1
-    assert round(u.krw) == 25200
+    assert round(u.krw) == 33600
