@@ -231,6 +231,20 @@ class PlannedThread(BaseModel):
     planted_as: str = ""                           # canonical seed_id once planted
 
 
+class EpisodeDirection(BaseModel):
+    """One way the next episode could go, offered for the author to choose."""
+    title: str
+    synopsis: str
+    key_scene: str = ""
+    cut_point: str = ""
+
+    def as_directive(self) -> str:
+        return "\n".join(x for x in (
+            f"제목: {self.title}", f"줄거리: {self.synopsis}",
+            f"핵심 장면: {self.key_scene}" if self.key_scene else "",
+            f"끊는 지점: {self.cut_point}" if self.cut_point else "") if x)
+
+
 class PendingEpisode(BaseModel):
     """An episode that cleared the machine gate and is waiting for the author.
 

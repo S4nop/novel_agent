@@ -165,6 +165,12 @@ class DraftIn(BaseModel):
     episode: int = 1
     revise: bool = True
     iterations: int = 2
+    # The direction the author chose from /directions, or wrote themselves.
+    direction: str = ""
+
+
+class DirectionsIn(BaseModel):
+    episode: int = 1
 
 
 # ── config / health ──────────────────────────────────────────────────────────
@@ -591,6 +597,7 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
             canon=canon, arc_map=effective_arc_map(store.load_arc_map(), llm, ns),
             rhythm=store.load_rhythm(),
             foreshadow=store.load_foreshadow(), summary=store.load_summary(),
+            chosen_direction=body.direction,
         )
         pack = ContextPackBuilder().build(
             genre_profile=profile, north_star=ns, voice_bible=store.load_voice_bible(),
@@ -695,6 +702,7 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
                            lint_prose(draft.prose, target_chars=beats.length_target,
                                       forbidden_terms=forbidden)],
             "pass_score": PASS_SCORE,
+            "direction": body.direction,
         }
         state.setdefault("episodes", {})[str(body.episode)] = {
             k: out[k] for k in ("chars", "score", "first_score", "iterations", "passed")
@@ -704,6 +712,54 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
         _save(pid, state)
         return out
     return run()
+
+# ── per-episode directions (coworker feedback 3-2) ───────────────────────────
+def _direction_basis(store: CanonStore) -> dict:
+    """What a proposal was drawn from. Once the serial or the canon moves on it
+    no longer describes the situation the next episode starts from."""
+    return {"latest_episode": store.latest_episode_number(),
+            "canon_version": store.load_canon().version}
+
+
+@app.post("/api/projects/{pid}/directions", status_code=202)
+def directions(pid: str, body: DirectionsIn):
+    """Propose three directions for the next episode, as a job (~1 minute)."""
+    from ..nodes import propose_directions
+
+    store = CanonStore(_dir(pid) / "_novel")
+    if not (store.root / "canon.json").exists():
+        raise HTTPException(400, "run /lock first")
+    _llm(_load(pid))
+
+    def work(ctx: jobs.JobContext) -> dict:
+        state = _load(pid)
+        llm, usage = _llm(state)
+        ctx.stage("directions", f"{body.episode}화 방향 제안")
+        ns = store.load_north_star()
+        opts = propose_directions(
+            llm, episode_number=body.episode, profile=store.load_genre_profile(),
+            north_star=ns, canon=store.load_canon(),
+            arc_map=effective_arc_map(store.load_arc_map(), llm, ns),
+            rhythm=store.load_rhythm(), foreshadow=store.load_foreshadow(),
+            summary=store.load_summary())
+        state["usage"] = _record_usage(state, usage)
+        _save(pid, state)
+        return {"episode": body.episode, "basis": _direction_basis(store),
+                "options": [o.model_dump() | {"directive": o.as_directive()} for o in opts]}
+
+    return _start_job(pid, "directions", lambda ctx: _guard(lambda: work(ctx)),
+                      meta={"episode": body.episode})
+
+
+@app.get("/api/projects/{pid}/directions/latest")
+def directions_latest(pid: str):
+    job = jobs.latest(_dir(pid), "directions")
+    if not job or job.get("status") != "done":
+        return {"episode": None, "options": [], "stale": False}
+    r = job["result"]
+    store = CanonStore(_dir(pid) / "_novel")
+    return {**r, "stale": r["basis"] != _direction_basis(store)}
+
 
 # ── background jobs ──────────────────────────────────────────────────────────
 def _start_job(pid: str, kind: str, fn, *, meta: dict | None = None) -> dict:

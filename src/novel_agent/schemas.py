@@ -95,6 +95,18 @@ class ArcMapDraft(BaseModel):
     threads: list[PlannedThreadDraft]
 
 
+class DirectionDraft(BaseModel):
+    title: str = Field(description="한 줄 제목")
+    synopsis: str = Field(description="2~3문장: 이번 화에 무슨 일이 일어나고 무엇이 바뀐 채 끝나는가")
+    key_scene: str = Field(description="이번 화에서 가장 중요한 장면 하나")
+    cut_point: str = Field(description="어디서 끊는가 — 결과가 나오기 직전의 순간")
+
+
+class DirectionsDraft(BaseModel):
+    """Three genuinely different ways the next episode could go."""
+    options: list[DirectionDraft]
+
+
 class BeatDraft(BaseModel):
     text: str
     beat_type: str = Field(description="setup | escalation | payoff | frustration | reveal | cliffhanger")

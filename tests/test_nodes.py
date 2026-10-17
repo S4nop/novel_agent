@@ -382,3 +382,74 @@ def test_a_seed_due_before_it_is_planted_is_pushed_past_the_current_episode():
     llm = ScriptedLLM(_bs_draft(seed_due=2))
     bs = _plan(llm, episode=5, total_episodes=30)
     assert all(s.due_by_ep is None or s.due_by_ep > 5 for s in bs.seeds_to_plant)
+
+
+# ── per-episode directions (coworker feedback 3-2) ──────────────────────────
+def _directions_draft(n=3):
+    from novel_agent.schemas import DirectionDraft, DirectionsDraft
+    return DirectionsDraft(options=[
+        DirectionDraft(title=f"방향{i}", synopsis=f"줄거리{i}", key_scene=f"장면{i}",
+                       cut_point=f"절단{i}") for i in range(1, n + 1)])
+
+
+def _propose(llm, episode=3, summary=None, foreshadow=None):
+    from novel_agent.nodes import propose_directions
+    ns = north_star(central_twist="길동은 관아가 심은 미끼였다")
+    return propose_directions(
+        llm, episode_number=episode, profile=genre_profile(), north_star=ns,
+        canon=init_canon_and_voice(ScriptedLLM(_canon_draft()), "i", genre_profile(), ns)[0],
+        arc_map=seed_arc_map(llm, ns), rhythm=RhythmState(),
+        foreshadow=foreshadow or ForeshadowLedger(),
+        summary=summary or Summary(story_so_far="1화: 첫 승소\n2화: 보복이 시작된다"))
+
+
+def test_three_directions_are_proposed_for_the_author_to_choose_from():
+    opts = _propose(ScriptedLLM(_directions_draft(3)))
+    assert [o.title for o in opts] == ["방향1", "방향2", "방향3"]
+    assert opts[0].synopsis and opts[0].key_scene and opts[0].cut_point
+
+
+def test_extra_directions_beyond_three_are_dropped():
+    assert len(_propose(ScriptedLLM(_directions_draft(5)))) == 3
+
+
+def test_directions_are_drawn_from_what_the_planner_would_see():
+    """A direction the planner cannot honour — off the arc, ignoring what the
+    story already did, blind to an open thread — is a choice that will not
+    survive into the episode."""
+    from novel_agent.artifacts import PlannedSeed
+
+    led = ForeshadowLedger()
+    led.plant(PlannedSeed(proposed_seed_id="x", description="사라진 호패", due_by_ep=3), episode=1)
+    llm = ScriptedLLM(_directions_draft())
+    _propose(llm, episode=3, foreshadow=led)
+    sent = llm.prompts[-1]
+    assert "2화: 보복이 시작된다" in sent          # story so far
+    assert "길동은 관아가 심은 미끼였다" in sent     # central twist
+    assert "사라진 호패" in sent                    # a 떡밥 due now
+    assert "3화" in sent
+
+
+def test_an_empty_proposal_is_an_error_not_a_silent_blank():
+    import pytest
+    with pytest.raises(ValueError):
+        _propose(ScriptedLLM(_directions_draft(0)))
+
+
+def test_the_chosen_direction_binds_the_episode_plan():
+    llm = ScriptedLLM(_bs_draft())
+    ns = north_star()
+    plan_episode(
+        llm, episode_number=2, profile=genre_profile(), north_star=ns,
+        canon=init_canon_and_voice(ScriptedLLM(_canon_draft()), "i", genre_profile(), ns)[0],
+        arc_map=seed_arc_map(llm, ns), rhythm=RhythmState(), foreshadow=ForeshadowLedger(),
+        summary=Summary(), chosen_direction="덕배가 먼저 배신한다 — 카심은 그걸 모른 채 변론한다")
+    sent = llm.prompts[-1]
+    assert "작가가 고른 이번 화 방향" in sent
+    assert "덕배가 먼저 배신한다" in sent
+
+
+def test_without_a_chosen_direction_the_planner_is_free():
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm, episode=2)
+    assert "덕배가 먼저 배신한다" not in llm.prompts[-1]

@@ -22,6 +22,7 @@ from .artifacts import (
     BeatType,
     Canon,
     CharacterCard,
+    EpisodeDirection,
     ContentRating,
     GenreProfile,
     GlossaryEntry,
@@ -41,6 +42,7 @@ from .prompts import analyst_system, restraint, voice_spec_guidance
 from .prompt_store import render
 from .schemas import (
     ArcMapDraft,
+    DirectionsDraft,
     BeatSheetDraft,
     CanonInitDraft,
     GenreProfileDraft,
@@ -497,6 +499,97 @@ def opening_directive(episode_number: int) -> str:
     return ""
 
 
+def _story_context(*, episode_number: int, profile: GenreProfile,
+                   north_star: NorthStar, canon: Canon, arc_map: ArcMap,
+                   rhythm: RhythmState, foreshadow: ForeshadowLedger,
+                   summary: Summary, extra_directive: str = "",
+                   total_episodes: int | None = None) -> dict:
+    """What the episode planner sees, as prompt values.
+
+    Shared with propose_directions on purpose: a direction drawn from anything
+    less — off the arc, blind to what the story already did or to a 떡밥 that
+    is due — is a choice the planner cannot honour once the author makes it.
+    """
+    arc = arc_for_episode(arc_map, episode_number)
+    # The plan already records the length it was built for. Requiring every
+    # call site to repeat it is how run_setup's preview ended up planned
+    # against "총 미정화" while the plan next to it said 30.
+    total_episodes = total_episodes or arc_map.total_episodes or None
+    due = foreshadow.due(episode_number)
+    if extra_directive:
+        # Converging: the directive calls a MAJOR payoff mandatory, but this
+        # block is the planner's only channel for seed IDs and due() filters by
+        # deadline — a seed planted late has a due_by_ep past the target, so its
+        # id was never shown and the payoff it demanded was undeclarable.
+        seen = {x.seed_id for x in due}
+        due = due + [x for x in foreshadow.unpaid_major() if x.seed_id not in seen]
+    cast = ", ".join(canon.characters)
+
+    return dict(
+        premise=north_star.premise,
+        episode_engine=north_star.episode_engine,
+        hard_rules="; ".join(north_star.hard_rules),
+        sub_genre=profile.sub_genre,
+        catharsis_cadence=profile.target_catharsis_cadence,
+        max_frustration=profile.max_consecutive_frustration_beats,
+        forbidden=", ".join(profile.forbidden_anti_patterns) or "없음",
+        arc_line=_arc_line(arc_map, arc, episode_number),
+        central_twist=north_star.central_twist or "미정",
+        cast=cast,
+        story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
+        pacing_directive="\n".join(
+            x for x in (opening_directive(episode_number),
+                        rhythm.pacing_directive(), extra_directive) if x),
+        # the seed_id must be visible, or the planner has no handle to
+        # declare a payoff with — seeds_to_pay would always come back empty
+        due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
+                                for x in due) or "없음"),
+        planned_threads=(chr(10).join(
+            _thread_line(arc_map, t, episode_number)
+            for t in unplanted_threads(arc_map))
+            or "없음"),
+        ripening_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
+                                     for x in foreshadow.ripening(episode_number))
+                        or "없음"),
+        total_episodes=(total_episodes or "미정"),
+        episode_number=episode_number,
+    )
+
+
+def propose_directions(
+    llm: LLM,
+    *,
+    episode_number: int,
+    profile: GenreProfile,
+    north_star: NorthStar,
+    canon: Canon,
+    arc_map: ArcMap,
+    rhythm: RhythmState,
+    foreshadow: ForeshadowLedger,
+    summary: Summary,
+    total_episodes: int | None = None,
+    n: int = 3,
+) -> list[EpisodeDirection]:
+    """Three ways the next episode could go, for the author to pick from
+    (coworker feedback 3-2). Drawn from exactly what the planner sees, so the
+    chosen one is something the planner can actually honour."""
+    ctx = _story_context(
+        episode_number=episode_number, profile=profile, north_star=north_star,
+        canon=canon, arc_map=arc_map, rhythm=rhythm, foreshadow=foreshadow,
+        summary=summary, total_episodes=total_episodes)
+    draft = llm.structured(
+        [{"role": "system", "content": analyst_system()},
+         {"role": "user", "content": render("episode_directions", **ctx)}],
+        DirectionsDraft,
+    )
+    options = [EpisodeDirection(title=o.title.strip(), synopsis=o.synopsis.strip(),
+                                key_scene=o.key_scene.strip(), cut_point=o.cut_point.strip())
+               for o in draft.options if o.title.strip() and o.synopsis.strip()][:n]
+    if not options:
+        raise ValueError("방향 제안이 비어 있습니다 — 다시 시도하세요")
+    return options
+
+
 def plan_episode(
     llm: LLM,
     *,
@@ -521,56 +614,31 @@ def plan_episode(
     # deadline with no denominator anywhere in the prompt, and the MAJOR
     # fallback below derived a 줄기's lifespan from the 사이다 rhythm.
     total_episodes: int | None = None,
+    # The direction the author picked from propose_directions (or wrote). It
+    # binds the plan; canon, the hard rules and the arc still bind it.
+    chosen_direction: str = "",
 ) -> BeatSheet:
     """EpisodePlanner — enforces the rhythm controller and due foreshadows."""
-    arc = arc_for_episode(arc_map, episode_number)
-    # The plan already records the length it was built for. Requiring every
-    # call site to repeat it is how run_setup's preview ended up planned
-    # against "총 미정화" while the plan next to it said 30.
+    ctx = _story_context(
+        episode_number=episode_number, profile=profile, north_star=north_star,
+        canon=canon, arc_map=arc_map, rhythm=rhythm, foreshadow=foreshadow,
+        summary=summary, extra_directive=extra_directive,
+        total_episodes=total_episodes)
+    # the seed deadlines below need the same fallback the prompt got
     total_episodes = total_episodes or arc_map.total_episodes or None
-    due = foreshadow.due(episode_number)
-    if extra_directive:
-        # Converging: the directive calls a MAJOR payoff mandatory, but this
-        # block is the planner's only channel for seed IDs and due() filters by
-        # deadline — a seed planted late has a due_by_ep past the target, so its
-        # id was never shown and the payoff it demanded was undeclarable.
-        seen = {x.seed_id for x in due}
-        due = due + [x for x in foreshadow.unpaid_major() if x.seed_id not in seen]
-    cast = ", ".join(canon.characters)
 
     draft = llm.structured(
         [
             {"role": "system", "content": analyst_system()},
             {"role": "user", "content": render(
-                "episode_plan", premise=north_star.premise,
-                episode_engine=north_star.episode_engine,
-                hard_rules="; ".join(north_star.hard_rules),
-                sub_genre=profile.sub_genre,
-                catharsis_cadence=profile.target_catharsis_cadence,
-                max_frustration=profile.max_consecutive_frustration_beats,
-                forbidden=", ".join(profile.forbidden_anti_patterns) or "없음",
-                arc_line=_arc_line(arc_map, arc, episode_number),
-                central_twist=north_star.central_twist or "미정",
-                cast=cast,
-                story_so_far=summary.story_so_far or "아직 1화 이전입니다.",
-                pacing_directive="\n".join(
-                    x for x in (opening_directive(episode_number),
-                                rhythm.pacing_directive(), extra_directive) if x),
-                # the seed_id must be visible, or the planner has no handle to
-                # declare a payoff with — seeds_to_pay would always come back empty
-                due_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
-                                        for x in due) or "없음"),
+                "episode_plan", **ctx,
                 closing_rule=render(
                     "closing_rule_final" if is_final else "closing_rule_serial"),
-                planned_threads=(chr(10).join(
-                    _thread_line(arc_map, t, episode_number)
-                    for t in unplanted_threads(arc_map))
-                    or "없음"),
-                ripening_seeds=(chr(10).join(f"- [{x.seed_id}] {x.description}"
-                                             for x in foreshadow.ripening(episode_number))
-                                or "없음"),
-                total_episodes=(total_episodes or "미정"),
-                episode_number=episode_number)},
+                author_direction=(
+                    chosen_direction.strip() + "\n— 이 방향을 반드시 따르세요. 위의 규칙·"
+                    "금지·아크와 충돌하는 부분만 그 제약 안에서 조정합니다."
+                    if chosen_direction.strip() else
+                    "없음 — 위 자료를 바탕으로 자유롭게 설계하세요."))},
         ],
         BeatSheetDraft,
     )

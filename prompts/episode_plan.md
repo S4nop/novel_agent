@@ -31,6 +31,9 @@ ${ripening_seeds}
 [계획된 떡밥] — 아직 안 던진 것들
 ${planned_threads}
 
+[작가가 고른 이번 화 방향]
+${author_direction}
+
 총 ${total_episodes}화 연재 중 ${episode_number}화의 비트시트를 설계하세요. 도입은 즉시 몰입되는 훅으로 시작합니다.
 ${closing_rule}
 beat_type은 setup/escalation/payoff/frustration/reveal/cliffhanger 중에서만 쓰세요.

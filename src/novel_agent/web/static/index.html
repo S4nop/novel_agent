@@ -46,6 +46,10 @@
   .cc label{display:block;font-size:11px;color:var(--dim);margin-top:7px}
   .cc input[type=text],.cc textarea{width:100%;box-sizing:border-box}
   .cc .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  button.tab.on{background:var(--acc);color:#0d0f16}
+  .dir{display:block;border:1px solid var(--line);border-radius:8px;padding:9px 10px;margin-bottom:7px;background:#0f1119;cursor:pointer}
+  .dir.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .dir textarea{width:100%;box-sizing:border-box;margin-top:6px}
   #log{font-family:ui-monospace,monospace;font-size:11px;color:var(--dim);max-height:120px;overflow:auto}
   .steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
   .steps span{font-size:11px;padding:3px 9px;border-radius:999px;background:#22252f;color:var(--dim)}
@@ -121,11 +125,24 @@
 
     <div class="panel">
       <h2>4 · 에피소드 집필</h2>
-      <div class="row">
-        <label class="k">화 <input id="epNo" type="number" value="1" min="1" style="width:64px"></label>
-        <label class="k"><input id="doRev" type="checkbox" checked> 수정 루프</label>
-        <label class="k">반복 <input id="iters" type="number" value="2" min="1" max="4" style="width:56px"></label>
-        <button onclick="writeEpisode()" id="bEp" disabled>집필</button>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost tab on" onclick="setMode('each')" id="tabEach">매화 생성</button>
+        <button class="ghost tab" onclick="setMode('all')" id="tabAll">한꺼번에 집필</button>
+      </div>
+      <div id="modeEach">
+        <div class="row">
+          <label class="k">화 <input id="epNo" type="number" value="1" min="1" style="width:64px" onchange="loadDirections()"></label>
+          <button class="ghost" onclick="proposeDirections()" id="bDirs" disabled>이번 화 어떻게 쓸까? — 방향 3가지</button>
+        </div>
+        <div id="dirs" style="margin-top:10px"></div>
+        <div class="row" style="margin-top:10px">
+          <label class="k"><input id="doRev" type="checkbox" checked> 수정 루프</label>
+          <label class="k">반복 <input id="iters" type="number" value="2" min="1" max="4" style="width:56px"></label>
+          <button onclick="writeEpisode()" id="bEp" disabled>집필</button>
+        </div>
+      </div>
+      <div id="modeAll" style="display:none"></div>
+      <div class="row" style="margin-top:8px">
         <button class="ghost" onclick="cancelJob()" id="bCancel" style="display:none">취소</button>
       </div>
       <div id="epMeta" style="margin-top:10px"></div>
@@ -220,6 +237,7 @@ function applyState(st){
   $('#steps').innerHTML = order.map(s=>`<span class="${s===st.step?'on':''}">${s}</span>`).join('');
   $('#bInt').disabled = false; $('#bSetup').disabled = false;
   $('#bEp').disabled = !(st.step==='locked'||st.step==='drafted');
+  $('#bDirs').disabled = $('#bEp').disabled;
   $('#bLock').style.display = st.candidates ? '' : 'none';
   $('#bLock').disabled = !st.candidates;
   if(st.candidates) $('#lockBar').style.display='';
@@ -573,16 +591,16 @@ let EP_POLL = null, EP_JOB = null;
 async function writeEpisode(){
   busy('#bEp', true, 1);
   try {
-    const n = +$('#epNo').value;
+    const n = +$('#epNo').value, direction = chosenDirection();
     const r = await api(`/api/projects/${PID}/episode`,'POST',{
-      episode:n, revise:$('#doRev').checked, iterations:+$('#iters').value});
-    log(`${n}화 집필 시작 — 10~20분 걸립니다. 창을 닫아도 서버에서 계속됩니다.`);
+      episode:n, revise:$('#doRev').checked, iterations:+$('#iters').value, direction});
+    log(`${n}화 집필 시작${direction ? ' (고른 방향으로)' : ''} — 10~20분 걸립니다. 창을 닫아도 서버에서 계속됩니다.`);
     watchJob(r.job_id);
   } catch(e){ busy('#bEp', false, 1); showEpError(e.message); }
 }
 function watchJob(id){
   EP_JOB = id; clearInterval(EP_POLL);
-  busy('#bEp', true, 1); $('#bCancel').style.display='';
+  busy('#bEp', true, 1); $('#bDirs').disabled = true; $('#bCancel').style.display='';
   EP_POLL = setInterval(()=>pollJob(id), 3000); pollJob(id);
 }
 async function pollJob(id){
@@ -591,8 +609,13 @@ async function pollJob(id){
   catch(e){ return; }                 // a missed poll is not a failed job
   if(j.status === 'running'){ showProgress(j); return; }
   clearInterval(EP_POLL); EP_POLL = null; EP_JOB = null;
-  $('#bCancel').style.display='none'; busy('#bEp', false, 1); $('#epMeta').innerHTML='';
-  if(j.status === 'done'){ renderEpisode(j.result); return; }
+  $('#bCancel').style.display='none'; busy('#bEp', false, 1); $('#bDirs').disabled = false;
+  $('#epMeta').innerHTML='';
+  if(j.status === 'done'){
+    if(j.kind === 'directions') return renderDirections(j.result, false);
+    renderEpisode(j.result); return loadDirections();
+  }
+  if(j.kind === 'directions') return $('#dirs').innerHTML = `<span class="pill bad">방향 제안 실패</span> ${esc(j.error||j.status)}`;
   showEpError(j.status === 'cancelled'
     ? '취소했습니다. 커밋 전에 멈췄으므로 캐논은 바뀌지 않았습니다.'
     : (j.error || j.status));
@@ -601,7 +624,7 @@ function showProgress(j){
   const min = Math.max(0, Math.round((Date.now()/1000 - j.started_at) / 60));
   $('#epMeta').innerHTML = `<span class="pill warn">${esc(j.stage_label||'')}`
     + `${j.stage_detail ? ' ' + esc(j.stage_detail) : ''}</span> <span class="k">${min}분 경과</span>`;
-  $('#prose').textContent = '집필 중… 단계가 바뀌면 위에 표시됩니다.';
+  if(j.kind === 'episode') $('#prose').textContent = '집필 중… 단계가 바뀌면 위에 표시됩니다.';
 }
 function showEpError(msg){
   // In the prose area, where the author is looking — not only in the log.
@@ -618,13 +641,66 @@ async function cancelJob(){
 async function restoreLatestJob(){
   // A reload, or a reconnect after the connection dropped mid-episode.
   try {
+    const any = await api(`/api/projects/${PID}/jobs/latest`);
+    if(any.id && any.status === 'running') watchJob(any.id);
     const j = await api(`/api/projects/${PID}/jobs/latest?kind=episode`);
-    if(!j.id) return;
-    if(j.status === 'running') watchJob(j.id);
-    else if(j.status === 'done') renderEpisode(j.result);
-    else if(j.status !== 'cancelled') showEpError(j.error || j.status);
+    if(j.id && j.status === 'done') renderEpisode(j.result);
+    else if(j.id && j.status !== 'running' && j.status !== 'cancelled') showEpError(j.error || j.status);
+    loadDirections();
   } catch(e){ /* no jobs yet */ }
 }
+// ── per-episode directions (coworker feedback 3-2) ──────────────────────────
+function setMode(m){
+  $('#modeEach').style.display = m==='each' ? '' : 'none';
+  $('#modeAll').style.display = m==='all' ? '' : 'none';
+  $('#tabEach').classList.toggle('on', m==='each'); $('#tabAll').classList.toggle('on', m==='all');
+  if(m==='all' && typeof renderSerialPanel === 'function') renderSerialPanel();
+}
+async function proposeDirections(){
+  const n = +$('#epNo').value;
+  try {
+    const r = await api(`/api/projects/${PID}/directions`,'POST',{episode:n});
+    $('#dirs').innerHTML = '<span class="k">방향을 고르는 중… 1분 정도 걸립니다.</span>';
+    log(`${n}화 방향 제안 요청`); watchJob(r.job_id);
+  } catch(e){ $('#dirs').innerHTML = `<span class="pill bad">요청 실패</span> ${esc(e.message)}`; }
+}
+async function loadDirections(){
+  try {
+    const r = await api(`/api/projects/${PID}/directions/latest`);
+    if(r.episode && r.episode === +$('#epNo').value) renderDirections(r, r.stale);
+    else $('#dirs').innerHTML = '';
+  } catch(e){ /* none yet */ }
+}
+function renderDirections(r, stale){
+  const card = (o,i) => `<label class="dir" id="dc-${i}" onclick="pickDir('${i}')">
+      <input type="radio" name="dir" value="${i}"> <b>${esc(o.title)}</b>
+      <div style="margin-top:4px">${esc(o.synopsis)}</div>
+      ${o.key_scene?`<div class="k" style="margin-top:4px">핵심 장면 · ${esc(o.key_scene)}</div>`:''}
+      ${o.cut_point?`<div class="k">끊는 지점 · ${esc(o.cut_point)}</div>`:''}
+      <textarea id="dt-${i}" rows="3" style="display:none">${esc(o.directive)}</textarea></label>`;
+  $('#dirs').innerHTML =
+    (stale ? '<div class="pill warn" style="margin-bottom:6px">이 제안 이후 이야기나 캐논이 바뀌었습니다 — 다시 제안받는 걸 권합니다</div>' : '')
+    + `<div class="k" style="margin-bottom:6px">${r.episode}화 방향 — 하나를 고르고, 필요하면 고친 뒤 집필하세요</div>`
+    + r.options.map(card).join('')
+    + `<label class="dir" id="dc-custom" onclick="pickDir('custom')"><input type="radio" name="dir" value="custom"> <b>직접 쓰기</b>
+         <textarea id="dt-custom" rows="3" placeholder="이번 화에 일어날 일, 끊을 지점…" style="display:none"></textarea></label>`
+    + `<label class="dir" id="dc-none" onclick="pickDir('none')"><input type="radio" name="dir" value="none" checked> <b>방향 없이</b>
+         <span class="k">— 에이전트가 자유롭게 설계</span></label>`;
+  pickDir('none');
+}
+function pickDir(i){
+  document.querySelectorAll('#dirs .dir').forEach(el=>el.classList.remove('sel'));
+  document.querySelectorAll('#dirs textarea').forEach(el=>el.style.display='none');
+  const card = $('#dc-'+i); if(!card) return;
+  card.classList.add('sel'); card.querySelector('input').checked = true;
+  const t = $('#dt-'+i); if(t) t.style.display='';
+}
+function chosenDirection(){
+  const r = document.querySelector('#dirs input[name=dir]:checked');
+  if(!r || r.value==='none') return '';
+  return ($('#dt-'+r.value)?.value || '').trim();
+}
+
 function renderEpisode(r){
     $('#prose').textContent = r.prose;
     // Advance to the next episode once this one is in canon. The field was

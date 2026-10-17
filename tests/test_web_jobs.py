@@ -205,3 +205,67 @@ def test_switching_the_revise_loop_off_still_runs_the_gate(client, monkeypatch):
     assert result["committed"] is False
     assert result["iterations"] == 0
     assert store.latest_episode_number() == 0
+
+
+# ── per-episode directions (coworker feedback 3-2) ──────────────────────────
+class DirectionLLM(FakeLLM):
+    """Answers the directions call and records what the planner was told."""
+
+    def __init__(self):
+        super().__init__()
+        self.plan_prompts = []
+
+    def structured(self, messages, schema):
+        from novel_agent.schemas import BeatSheetDraft, DirectionDraft, DirectionsDraft
+        if schema is DirectionsDraft:
+            return DirectionsDraft(options=[
+                DirectionDraft(title=f"방향{i}", synopsis=f"줄거리{i}",
+                               key_scene=f"장면{i}", cut_point=f"절단{i}") for i in (1, 2, 3)])
+        if schema is BeatSheetDraft:
+            self.plan_prompts.append(messages[-1]["content"])
+        return super().structured(messages, schema)
+
+
+def test_three_directions_arrive_through_a_job(client, monkeypatch):
+    pid, _ = _project(client)
+    _use(monkeypatch, DirectionLLM())
+    r = client.post(f"/api/projects/{pid}/directions", json={"episode": 1})
+    assert r.status_code == 202
+    job = _wait(client, pid, r.json()["job_id"])
+    assert [o["title"] for o in job["result"]["options"]] == ["방향1", "방향2", "방향3"]
+
+
+def test_the_last_directions_survive_a_reload(client, monkeypatch):
+    pid, _ = _project(client)
+    _use(monkeypatch, DirectionLLM())
+    _wait(client, pid, client.post(f"/api/projects/{pid}/directions",
+                                   json={"episode": 1}).json()["job_id"])
+    latest = client.get(f"/api/projects/{pid}/directions/latest").json()
+    assert latest["episode"] == 1 and len(latest["options"]) == 3
+    assert latest["stale"] is False
+
+
+def test_directions_go_stale_once_the_story_moves_on(client, monkeypatch):
+    """Proposed for 1화 against yesterday's canon, they no longer describe the
+    situation the next episode starts from."""
+    pid, store = _project(client)
+    _use(monkeypatch, DirectionLLM())
+    _wait(client, pid, client.post(f"/api/projects/{pid}/directions",
+                                   json={"episode": 1}).json()["job_id"])
+    c = store.load_canon()
+    c.last_modified_by = "author"
+    c.version += 1
+    store.save_canon(c)
+    assert client.get(f"/api/projects/{pid}/directions/latest").json()["stale"] is True
+
+
+def test_the_chosen_direction_reaches_the_planner(client, monkeypatch):
+    pid, _ = _project(client)
+    llm = DirectionLLM()
+    _use(monkeypatch, llm)
+    job_id = client.post(f"/api/projects/{pid}/episode", json={
+        "episode": 1, "direction": "제목: 덕배의 배신\n줄거리: 덕배가 먼저 등을 돌린다"}).json()["job_id"]
+    result = _wait(client, pid, job_id)["result"]
+
+    assert "덕배가 먼저 등을 돌린다" in llm.plan_prompts[-1]
+    assert result["direction"].startswith("제목: 덕배의 배신")
