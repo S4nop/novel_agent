@@ -269,3 +269,122 @@ def test_the_chosen_direction_reaches_the_planner(client, monkeypatch):
 
     assert "덕배가 먼저 등을 돌린다" in llm.plan_prompts[-1]
     assert result["direction"].startswith("제목: 덕배의 배신")
+
+
+# ── 한꺼번에 집필 (coworker feedback 3-1) ──────────────────────────────────
+class ChargingLLM(FakeLLM):
+    """Bills the usage meter the console hands it, so budgets mean something,
+    and can hold the Nth text call until released."""
+
+    def __init__(self, usage=None, hold_at=None):
+        super().__init__()
+        from novel_agent.llm import Usage
+        self.usage = usage or Usage()
+        self.hold_at, self.calls = hold_at, 0
+        self.release = threading.Event()
+
+    def text(self, messages, *, max_tokens=8192):
+        self.calls += 1
+        if self.calls == self.hold_at:
+            assert self.release.wait(10)
+        self.usage.add(input_tokens=10_000, output_tokens=10_000)   # ~₩300 at test prices
+        return super().text(messages, max_tokens=max_tokens)
+
+
+def _charging(monkeypatch, **kw):
+    made = []
+
+    def build(*a, usage=None, **k):
+        made.append(ChargingLLM(usage=usage, **kw))
+        return made[-1]
+    monkeypatch.setattr(web, "build_llm", build)
+    return made
+
+
+def test_the_whole_serial_is_written_as_one_job(client, monkeypatch):
+    pid, store = _project(client)
+    _charging(monkeypatch)
+    r = client.post(f"/api/projects/{pid}/serial", json={"target_episodes": 3})
+    assert r.status_code == 202
+    result = _wait(client, pid, r.json()["job_id"])["result"]
+
+    assert store.latest_episode_number() == 3
+    assert result["committed"] == 3
+    assert [o["episode"] for o in result["outcomes"]] == [1, 2, 3]
+
+
+def test_progress_is_visible_while_the_serial_runs(client, monkeypatch):
+    pid, _ = _project(client)
+    made = _charging(monkeypatch, hold_at=2)       # holds inside 2화
+    job_id = client.post(f"/api/projects/{pid}/serial", json={"target_episodes": 3}).json()["job_id"]
+
+    job = _wait_for_stage(client, pid, job_id, "serial")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not job.get("progress", {}).get("outcomes"):
+        time.sleep(0.02)
+        job = client.get(f"/api/projects/{pid}/jobs/{job_id}").json()
+    assert "2/3화" in job["stage_label"]
+    assert [o["episode"] for o in job["progress"]["outcomes"]] == [1]
+    made[-1].release.set()
+    _wait(client, pid, job_id)
+
+
+def test_stopping_the_serial_keeps_what_it_finished(client, monkeypatch):
+    pid, store = _project(client)
+    made = _charging(monkeypatch, hold_at=2)
+    job_id = client.post(f"/api/projects/{pid}/serial", json={"target_episodes": 5}).json()["job_id"]
+    _wait_for_stage(client, pid, job_id, "serial")
+    while not made or made[-1].calls < 2:
+        time.sleep(0.02)
+
+    client.post(f"/api/projects/{pid}/jobs/{job_id}/cancel")
+    made[-1].release.set()
+    job = _wait(client, pid, job_id)
+
+    assert job["status"] == "done"
+    assert store.latest_episode_number() == 2      # the episode in hand was finished
+    assert "3화부터" in job["result"]["stopped_because"]
+
+
+def test_the_budget_is_what_this_run_spends_not_the_projects_lifetime_total(client, monkeypatch):
+    """The console meter is cumulative; capping a new run by it would stop the
+    run before its first episode on any project that had already spent."""
+    pid, store = _project(client)
+    state = json.loads((web._root() / pid / "state.json").read_text(encoding="utf-8"))
+    state["usage"] = {"input_tokens": 10**9, "output_tokens": 10**9, "calls": 999}
+    (web._root() / pid / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    _charging(monkeypatch)
+
+    job_id = client.post(f"/api/projects/{pid}/serial",
+                         json={"target_episodes": 2, "budget_krw": 5000}).json()["job_id"]
+    _wait(client, pid, job_id)
+    assert store.latest_episode_number() == 2
+    after = client.get(f"/api/projects/{pid}").json()["usage"]
+    assert after["calls"] > 999                    # and it still lands on the project meter
+
+
+def test_a_small_budget_stops_the_serial_early(client, monkeypatch):
+    pid, store = _project(client)
+    _charging(monkeypatch)
+    job_id = client.post(f"/api/projects/{pid}/serial",
+                         json={"target_episodes": 5, "budget_krw": 1}).json()["job_id"]
+    result = _wait(client, pid, job_id)["result"]
+    assert store.latest_episode_number() == 1
+    assert "예산" in result["stopped_because"]
+
+
+def test_an_estimate_is_given_before_starting(client):
+    pid, _ = _project(client)
+    est = client.get(f"/api/projects/{pid}/serial/estimate?target_episodes=10").json()
+    assert est["remaining"] == 10
+    assert 0 < est["krw_min"] <= est["krw_max"]
+    assert 0 < est["minutes_min"] <= est["minutes_max"]
+
+
+def test_a_finished_episode_can_be_read_while_the_run_continues(client, monkeypatch):
+    pid, _ = _project(client)
+    _charging(monkeypatch)
+    _wait(client, pid, client.post(f"/api/projects/{pid}/serial",
+                                   json={"target_episodes": 1}).json()["job_id"])
+    ep = client.get(f"/api/projects/{pid}/episodes/1").json()
+    assert ep["prose"] == CLEAN and ep["committed"] is True

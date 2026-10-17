@@ -63,8 +63,12 @@ can inspect and retry a stage without re-spending tokens on the earlier ones:
 | 연결 테스트 | live call — verifies provider, model id, and key |
 | 1 아이디어 | create/switch projects (state persists to disk) |
 | 2 설정 인터뷰 | agent asks ~8-10 tailored questions; **your answers decide the world** |
-| 3 장르 + 전제 후보 | L0 profile + 3 NorthStar candidates → you lock one → Canon + VoiceBible |
-| 4 에피소드 집필 | plan → draft → bounded revise loop, with before/after style score |
+| 3 장르 + 전제 후보 | L0 profile + 3 NorthStar candidates → you lock one → Canon + VoiceBible + arc plan; edit the canon in a form (a rename reaches every file the name lives in) |
+| 4 에피소드 집필 · 매화 생성 | ask for 3 directions → pick / edit / write your own → plan → draft → revise → gate |
+| 4 에피소드 집필 · 한꺼번에 집필 | from the next episode to the target in one run, with an estimate, a budget cap and a stop |
+
+Writing runs as a background job (an episode takes 10-20 minutes): progress is shown,
+and a reload or a dropped connection gets the running job or its result back.
 | 문체 린트 | **costs nothing** — paste any prose and score it instantly |
 | 비용 | running token/cost meter per project |
 

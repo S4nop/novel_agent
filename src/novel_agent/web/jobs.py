@@ -56,6 +56,12 @@ class JobContext:
                          updated_at=time.time())
         _write(self._path, self._job)
 
+    def progress(self, **fields) -> None:
+        """Report without the cancel check — for work that stops on its own
+        terms (a serial finishes the episode in hand before honouring a stop)."""
+        self._job.update(fields, updated_at=time.time())
+        _write(self._path, self._job)
+
     @property
     def cancelled(self) -> bool:
         return self._cancel.is_set()

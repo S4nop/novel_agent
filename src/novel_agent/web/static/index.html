@@ -141,7 +141,17 @@
           <button onclick="writeEpisode()" id="bEp" disabled>집필</button>
         </div>
       </div>
-      <div id="modeAll" style="display:none"></div>
+      <div id="modeAll" style="display:none">
+        <div class="row">
+          <label class="k">목표 화수 <input id="serTarget" type="number" min="1" style="width:64px" onchange="serialEstimate()"></label>
+          <label class="k">이번 실행 예산 ₩ <input id="serBudget" type="number" value="50000" step="10000" style="width:90px"></label>
+          <label class="k">수정 반복 <input id="serIters" type="number" value="3" min="0" max="4" style="width:48px"></label>
+          <button onclick="startSerial()" id="bSerial" disabled>현재 화부터 목표 화수까지 집필</button>
+        </div>
+        <div id="serEst" class="k" style="margin-top:6px"></div>
+        <div class="k" style="margin-top:4px">⚠ 화마다 작가 확인 없이 자동으로 캐논에 반영됩니다. 한 화씩 읽고 고르며 쓰려면 <b>매화 생성</b> 탭을 쓰세요.</div>
+        <div id="serLog" style="margin-top:10px"></div>
+      </div>
       <div class="row" style="margin-top:8px">
         <button class="ghost" onclick="cancelJob()" id="bCancel" style="display:none">취소</button>
       </div>
@@ -238,6 +248,7 @@ function applyState(st){
   $('#bInt').disabled = false; $('#bSetup').disabled = false;
   $('#bEp').disabled = !(st.step==='locked'||st.step==='drafted');
   $('#bDirs').disabled = $('#bEp').disabled;
+  $('#bSerial').disabled = $('#bEp').disabled;
   $('#bLock').style.display = st.candidates ? '' : 'none';
   $('#bLock').disabled = !st.candidates;
   if(st.candidates) $('#lockBar').style.display='';
@@ -600,19 +611,26 @@ async function writeEpisode(){
 }
 function watchJob(id){
   EP_JOB = id; clearInterval(EP_POLL);
-  busy('#bEp', true, 1); $('#bDirs').disabled = true; $('#bCancel').style.display='';
+  busy('#bEp', true, 1); $('#bDirs').disabled = true; $('#bSerial').disabled = true;
+  $('#bCancel').style.display='';
   EP_POLL = setInterval(()=>pollJob(id), 3000); pollJob(id);
 }
 async function pollJob(id){
   let j;
   try { j = await api(`/api/projects/${PID}/jobs/${id}`); }
   catch(e){ return; }                 // a missed poll is not a failed job
-  if(j.status === 'running'){ showProgress(j); return; }
+  if(j.status === 'running'){
+    showProgress(j);
+    if(j.kind === 'serial'){ $('#bCancel').textContent = '중지 (지금 쓰는 화를 마치고)'; renderSerialLog(j.progress?.outcomes||[]); }
+    return;
+  }
   clearInterval(EP_POLL); EP_POLL = null; EP_JOB = null;
   $('#bCancel').style.display='none'; busy('#bEp', false, 1); $('#bDirs').disabled = false;
+  $('#bSerial').disabled = false; $('#bCancel').textContent = '취소';
   $('#epMeta').innerHTML='';
   if(j.status === 'done'){
     if(j.kind === 'directions') return renderDirections(j.result, false);
+    if(j.kind === 'serial'){ renderSerialLog(j.result.outcomes, j.result); serialEstimate(); return; }
     renderEpisode(j.result); return loadDirections();
   }
   if(j.kind === 'directions') return $('#dirs').innerHTML = `<span class="pill bad">방향 제안 실패</span> ${esc(j.error||j.status)}`;
@@ -699,6 +717,59 @@ function chosenDirection(){
   const r = document.querySelector('#dirs input[name=dir]:checked');
   if(!r || r.value==='none') return '';
   return ($('#dt-'+r.value)?.value || '').trim();
+}
+
+// ── 한꺼번에 집필 (coworker feedback 3-1) ───────────────────────────────────
+async function renderSerialPanel(){
+  if(!$('#serTarget').value){
+    try { $('#serTarget').value = (await api(`/api/projects/${PID}/serial/estimate`)).target; } catch(e){}
+  }
+  serialEstimate();
+  try {
+    const j = await api(`/api/projects/${PID}/jobs/latest?kind=serial`);
+    if(j.id && j.status === 'done') renderSerialLog(j.result.outcomes, j.result);
+  } catch(e){}
+}
+async function serialEstimate(){
+  try {
+    const t = $('#serTarget').value ? `?target_episodes=${+$('#serTarget').value}` : '';
+    const e = await api(`/api/projects/${PID}/serial/estimate${t}`);
+    const hours = m => (m/60).toFixed(m < 120 ? 1 : 0);
+    $('#serEst').innerHTML = e.remaining === 0
+      ? `이미 ${e.target}화까지 썼습니다.`
+      : `${e.latest + 1}화부터 ${e.target}화까지 ${e.remaining}화 · 예상 ${hours(e.minutes_min)}~${hours(e.minutes_max)}시간`
+        + ` · ₩${e.krw_min.toLocaleString()}~${e.krw_max.toLocaleString()} (현재 모델 기준 추정)`
+        + (e.warning ? `<br><span class="pill warn">${esc(e.warning)}</span>` : '');
+  } catch(e){ $('#serEst').textContent = ''; }
+}
+async function startSerial(){
+  const target = +$('#serTarget').value, budget = +$('#serBudget').value;
+  if(!confirm(`${target}화까지 자동으로 씁니다. 통과한 화는 확인 없이 캐논에 반영되고, 이번 실행은 ₩${budget.toLocaleString()}에서 멈춥니다. 시작할까요?`)) return;
+  try {
+    const r = await api(`/api/projects/${PID}/serial`,'POST',
+      {target_episodes: target, budget_krw: budget, iterations: +$('#serIters').value});
+    $('#serLog').innerHTML = '<span class="k">시작했습니다. 창을 닫아도 서버에서 계속됩니다.</span>';
+    log(`한꺼번에 집필 시작 — ${target}화까지`); watchJob(r.job_id);
+  } catch(e){ $('#serLog').innerHTML = `<span class="pill bad">시작 실패</span> ${esc(e.message)}`; }
+}
+function renderSerialLog(outcomes, final){
+  const rows = (outcomes||[]).map(o => `<tr>
+      <td>${o.episode}화</td>
+      <td><span class="pill ${o.committed?'ok':'bad'}">${o.committed?'커밋':'반려'}</span></td>
+      <td>${o.chars ? o.chars.toLocaleString()+'자 · '+o.score+'점' : '—'}</td>
+      <td class="k">${esc(o.reason||'')}</td>
+      <td><button class="ghost" onclick="readEpisode(${o.episode})">읽기</button></td></tr>`).join('');
+  $('#serLog').innerHTML =
+    (final ? `<div style="margin-bottom:6px"><span class="pill ${final.completed?'ok':'warn'}">${final.completed?'완결':'멈춤'}</span>
+       ${esc(final.stopped_because)} <span class="k">· 커밋 ${final.committed}화 · ₩${(final.krw||0).toLocaleString()}</span></div>` : '')
+    + (rows ? `<table>${rows}</table>` : '');
+}
+async function readEpisode(n){
+  try {
+    const e = await api(`/api/projects/${PID}/episodes/${n}`);
+    $('#epScore').innerHTML = `<span class="pill ${e.committed?'ok':'bad'}">${n}화 · ${e.committed?'커밋됨':'반려된 원고'}</span>`;
+    $('#prose').textContent = e.prose;
+  } catch(e){ log('읽기 실패: ' + esc(e.message)); }
 }
 
 function renderEpisode(r){

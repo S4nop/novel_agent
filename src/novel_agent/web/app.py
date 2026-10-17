@@ -173,6 +173,13 @@ class DirectionsIn(BaseModel):
     episode: int = 1
 
 
+class SerialIn(BaseModel):
+    # None = the length the arc plan was built for
+    target_episodes: int | None = None
+    budget_krw: float = 50_000.0
+    iterations: int = 3
+
+
 # ── config / health ──────────────────────────────────────────────────────────
 @app.get("/api/config")
 def get_config():
@@ -609,11 +616,7 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
         # (테스트 피드백 1-④): a hard rule the model quietly ignored used to be
         # invisible to the gate. Sourced from the interview's hard_rule answers
         # plus the profile's anti-patterns — never a hardcoded word list.
-        forbidden = forbidden_terms_from(
-            hard_rules=[a["answer"] for a in state.get("answers", [])
-                        if a.get("hard_rule")],
-            anti_patterns=profile.forbidden_anti_patterns,
-        )
+        forbidden = _forbidden(state, profile)
         ctx.stage("draft", f"{n}화 집필")
         draft = draft_episode(llm, pack, max_tokens=32768)
         ctx.stage("judge", "도입·절단 판정")
@@ -759,6 +762,126 @@ def directions_latest(pid: str):
     r = job["result"]
     store = CanonStore(_dir(pid) / "_novel")
     return {**r, "stale": r["basis"] != _direction_basis(store)}
+
+
+# ── 한꺼번에 집필 (coworker feedback 3-1) ───────────────────────────────────
+def _forbidden(state: dict, profile) -> list[str]:
+    """The author's absolute prohibitions as blocker terms (테스트 피드백 1-④),
+    from the interview's hard-rule answers plus the profile's anti-patterns."""
+    return forbidden_terms_from(
+        hard_rules=[a["answer"] for a in state.get("answers", []) if a.get("hard_rule")],
+        anti_patterns=profile.forbidden_anti_patterns)
+
+
+def _usage_sum(base: dict, run: Usage) -> Usage:
+    s = load_settings()
+    return Usage(
+        input_tokens=base.get("input_tokens", 0) + run.input_tokens,
+        output_tokens=base.get("output_tokens", 0) + run.output_tokens,
+        cached_tokens=base.get("cached_tokens", 0) + run.cached_tokens,
+        cache_write_tokens=base.get("cache_write_tokens", 0) + run.cache_write_tokens,
+        thinking_tokens=base.get("thinking_tokens", 0) + run.thinking_tokens,
+        calls=base.get("calls", 0) + run.calls,
+        price_in_per_1m=s.price_in_per_1m, price_out_per_1m=s.price_out_per_1m,
+        cache_read_multiplier=s.cache_read_multiplier, usd_krw=s.usd_krw)
+
+
+# Measured on the live arc-v8 run: ₩1,500-1,800 per episode at $10/M output
+# (Sonnet 5), and 12-20 minutes per episode on Opus 5.5. Rough by design — the
+# point is that the author sees "hours, tens of thousands of won" before
+# pressing a button that commits every episode unattended.
+_EP_KRW_AT_10 = (1500.0, 1800.0)
+_EP_MINUTES = (12, 20)
+
+
+@app.get("/api/projects/{pid}/serial/estimate")
+def serial_estimate(pid: str, target_episodes: int | None = None):
+    from ..driver import resolve_target_episodes
+
+    store = CanonStore(_dir(pid) / "_novel")
+    target, warning = resolve_target_episodes(target_episodes, store.load_arc_map())
+    latest = store.latest_episode_number()
+    remaining = max(0, target - latest)
+    scale = load_settings().price_out_per_1m / 10.0
+    return {"target": target, "latest": latest, "remaining": remaining, "warning": warning,
+            "krw_min": round(remaining * _EP_KRW_AT_10[0] * scale),
+            "krw_max": round(remaining * _EP_KRW_AT_10[1] * scale),
+            "minutes_min": remaining * _EP_MINUTES[0],
+            "minutes_max": remaining * _EP_MINUTES[1]}
+
+
+@app.post("/api/projects/{pid}/serial", status_code=202)
+def serial(pid: str, body: SerialIn):
+    """Write from the next episode to the target as one job — the unattended
+    driver, with progress, a budget cap and a stop that finishes the episode in
+    hand. Every passing episode is committed without asking; the 매화 생성
+    tab is the way to read each one first."""
+    from ..driver import RunConfig, resolve_target_episodes, run_serial
+
+    store = CanonStore(_dir(pid) / "_novel")
+    if not (store.root / "canon.json").exists():
+        raise HTTPException(400, "run /lock first")
+    _llm(_load(pid))
+    target, warning = resolve_target_episodes(body.target_episodes, store.load_arc_map())
+    if store.latest_episode_number() >= target:
+        raise HTTPException(400, f"이미 {target}화까지 썼습니다")
+
+    def work(ctx: jobs.JobContext) -> dict:
+        state = _load(pid)
+        base_usage = dict(state.get("usage") or {})
+        s = load_settings()
+        # The cap is what THIS run spends. The console meter is the project's
+        # lifetime total, and capping by it would stop at once on any project
+        # that had already spent.
+        run_usage = _usage_sum({}, Usage())
+        llm = build_llm(s, usage=run_usage)
+        outcomes: list[dict] = []
+        ctx.progress(stage="serial", stage_label=f"{store.latest_episode_number() + 1}/{target}화 집필",
+                     progress={"target": target, "outcomes": outcomes, "krw": 0})
+
+        def started(ep: int) -> None:
+            ctx.progress(stage="serial", stage_label=f"{ep}/{target}화 집필",
+                         stage_detail=f"커밋 {sum(o['committed'] for o in outcomes)} · "
+                                      f"반려 {sum(not o['committed'] for o in outcomes)} · "
+                                      f"₩{run_usage.krw:,.0f}")
+
+        def ended(o) -> None:
+            if not o.committed and o.prose:
+                (_dir(pid) / f"ep{o.episode:02d}.rejected.txt").write_text(o.prose, encoding="utf-8")
+            outcomes.append({"episode": o.episode, "committed": o.committed, "chars": o.chars,
+                             "score": o.score, "reason": o.reason})
+            st = _load(pid)
+            st["usage"] = _record_usage(st, _usage_sum(base_usage, run_usage))
+            st["step"] = "drafted"
+            _save(pid, st)
+            ctx.progress(progress={"target": target, "outcomes": outcomes,
+                                   "krw": round(run_usage.krw)})
+
+        report = run_serial(
+            llm, store, usage=run_usage,
+            config=RunConfig(target_episodes=target, max_krw=body.budget_krw,
+                             revise_iterations=body.iterations,
+                             forbidden_terms=_forbidden(state, store.load_genre_profile())),
+            on_episode_start=started, on_outcome=ended, should_stop=lambda: ctx.cancelled)
+        return {"stopped_because": report.stopped_because, "completed": report.completed,
+                "committed": report.committed_episodes, "krw": round(run_usage.krw),
+                "outcomes": outcomes, "warning": warning}
+
+    return _start_job(pid, "serial", lambda ctx: _guard(lambda: work(ctx)),
+                      meta={"target": target})
+
+
+@app.get("/api/projects/{pid}/episodes/{n}")
+def episode_read(pid: str, n: int):
+    """A committed episode, or the last rejected attempt at it."""
+    store = CanonStore(_dir(pid) / "_novel")
+    rec = store.load_episode(n)
+    if rec is not None:
+        return {"episode": n, "prose": rec.prose, "committed": True}
+    rejected = _dir(pid) / f"ep{n:02d}.rejected.txt"
+    if rejected.exists():
+        return {"episode": n, "prose": rejected.read_text(encoding="utf-8"), "committed": False}
+    raise HTTPException(404, f"{n}화 원고가 없습니다")
 
 
 # ── background jobs ──────────────────────────────────────────────────────────

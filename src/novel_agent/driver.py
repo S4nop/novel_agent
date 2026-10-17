@@ -203,11 +203,17 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
 
 
 def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
-               usage: Usage | None = None) -> RunReport:
+               usage: Usage | None = None,
+               on_episode_start=None, on_outcome=None, should_stop=None) -> RunReport:
     """Write episodes until 완결, the target, the budget, or the breaker.
 
     Resumes from whatever the store already holds, so an interrupted run picks
     up where it stopped rather than rewriting committed episodes.
+
+    The hooks are for a caller that shows progress and lets the author stop a
+    run that takes hours (the console's 한꺼번에 집필). should_stop is checked
+    before each episode, never mid-episode: the one in hand is finished, so a
+    stop costs no half-written work.
     """
     cfg = config or RunConfig()
     usage = usage or getattr(llm, "usage", None) or Usage()
@@ -224,8 +230,17 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             "승인하거나 반려한 뒤 다시 실행하세요.")
         return report
 
+    def emit(outcome: EpisodeOutcome) -> None:
+        report.outcomes.append(outcome)
+        if on_outcome is not None:
+            on_outcome(outcome)
+
     episode = start
     while episode <= cfg.target_episodes:
+        if should_stop is not None and should_stop():
+            report.stopped_because = (f"작가가 중지했습니다 — 다시 실행하면 {episode}화부터 "
+                                      "이어서 씁니다.")
+            break
         # Budget is checked BEFORE spending, so the cap is a ceiling rather
         # than something noticed after the fact.
         if usage.krw >= cfg.max_krw:
@@ -233,6 +248,8 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
                 f"예산 상한 도달: ₩{usage.krw:,.0f} ≥ ₩{cfg.max_krw:,.0f}")
             break
 
+        if on_episode_start is not None:
+            on_episode_start(episode)
         try:
             beats, result, continuity, craft = _plan_and_write(llm, store, episode, cfg)
         except LLMUnavailable as e:
@@ -243,7 +260,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             break
         except LLMRefusal as e:
             consecutive_failures += 1
-            report.outcomes.append(EpisodeOutcome(
+            emit(EpisodeOutcome(
                 episode=episode, passed=False, committed=False, chars=0, score=0,
                 continuity_blockers=0, reason=f"모델 거부/빈 응답: {e}"))
             if consecutive_failures >= cfg.max_consecutive_failures:
@@ -273,7 +290,7 @@ def run_serial(llm: LLM, store: CanonStore, *, config: RunConfig | None = None,
             consecutive_failures += 1
 
         committed = passed and not cfg.require_approval
-        report.outcomes.append(EpisodeOutcome(
+        emit(EpisodeOutcome(
             episode=episode, passed=passed, committed=committed,
             chars=result.draft.char_count, score=result.score,
             continuity_blockers=sum(1 for v in continuity if v.severity == "blocker"),

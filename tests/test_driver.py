@@ -381,3 +381,34 @@ def test_the_unattended_run_still_commits_without_asking(tmp_path):
     report = run_serial(FakeLLM(), store, config=RunConfig(target_episodes=2))
     assert report.committed_episodes == 2
     assert store.pending_episode() is None
+
+
+# ── hooks for the console's 한꺼번에 집필 job (coworker feedback 3-1) ─────────
+def test_each_episode_is_reported_as_it_starts_and_as_it_ends(tmp_path):
+    started, ended = [], []
+    run_serial(FakeLLM(), _store(tmp_path), config=RunConfig(target_episodes=2),
+               on_episode_start=started.append,
+               on_outcome=lambda o: ended.append((o.episode, o.committed)))
+    assert started == [1, 2]
+    assert ended == [(1, True), (2, True)]
+
+
+def test_a_stop_request_ends_the_run_after_the_episode_in_hand(tmp_path):
+    """The author can stop a 6-11 hour run; the episode being written is not
+    thrown away half-done, and the next run picks up after it."""
+    store = _store(tmp_path)
+    ended = []
+    report = run_serial(FakeLLM(), store, config=RunConfig(target_episodes=5),
+                        on_outcome=ended.append, should_stop=lambda: len(ended) >= 2)
+    assert store.latest_episode_number() == 2
+    assert report.completed is False
+    assert "중지" in report.stopped_because
+    assert "3화" in report.stopped_because
+
+
+def test_a_failed_attempt_is_reported_too(tmp_path):
+    ended = []
+    run_serial(FakeLLM(contradiction=True), _store(tmp_path),
+               config=RunConfig(target_episodes=1, max_consecutive_failures=2),
+               on_outcome=ended.append)
+    assert [o.committed for o in ended] == [False, False]
