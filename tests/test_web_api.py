@@ -467,3 +467,76 @@ def test_accepting_from_the_console_commits_the_episode(client, monkeypatch):
     assert store.pending_episode() is None
     assert store.latest_episode_number() == 1
     assert "1화" in store.load_summary().story_so_far
+
+
+# ── canon form editing: rename, delete (coworker feedback 2) ────────────────
+def _with_episode(pid, prose="김현우는 눈을 떴다."):
+    from novel_agent.artifacts import EpisodeRecord
+    store = _seed_canon(pid)
+    store.commit_episode(EpisodeRecord(episode_number=1, prose=prose, accepted_draft_hash="h"))
+    return store
+
+
+def test_a_rename_preview_changes_nothing(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_canon(pid)
+    r = client.post(f"/api/projects/{pid}/characters/김현우/rename",
+                    json={"new_name": "박철수", "dry_run": True})
+    assert r.status_code == 200
+    assert r.json()["changes"]
+    assert "김현우" in store.load_canon().characters
+
+
+def test_a_rename_updates_what_the_console_shows(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_canon(pid)
+    r = client.post(f"/api/projects/{pid}/characters/김현우/rename",
+                    json={"new_name": "박철수"})
+    assert r.status_code == 200
+    assert "박철수" in client.get(f"/api/projects/{pid}").json()["canon"]["characters"]
+
+
+def test_a_refused_rename_is_a_readable_error(client):
+    from novel_agent.artifacts import Draft, PendingEpisode
+    from .factories import beat_sheet
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_canon(pid)
+    store.hold_episode(PendingEpisode(draft=Draft(episode_number=1, prose="p"),
+                                      beats=beat_sheet(1)))
+    r = client.post(f"/api/projects/{pid}/characters/김현우/rename",
+                    json={"new_name": "박철수"})
+    assert r.status_code == 409
+    assert "승인" in r.json()["detail"]
+
+
+def test_a_character_an_episode_already_named_cannot_be_deleted(client):
+    """Canon would then contradict published prose; 퇴장 is the way out."""
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _with_episode(pid)
+    c = client.get(f"/api/projects/{pid}/canon").json()
+    del c["characters"]["김현우"]
+
+    r = client.put(f"/api/projects/{pid}/canon", json={"canon": c})
+    assert r.status_code == 409
+    assert "퇴장" in r.json()["detail"]
+    assert "김현우" in store.load_canon().characters
+
+
+def test_a_character_no_episode_used_can_be_deleted(client):
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    store = _seed_canon(pid)
+    c = client.get(f"/api/projects/{pid}/canon").json()
+    del c["characters"]["김현우"]
+    assert client.put(f"/api/projects/{pid}/canon", json={"canon": c}).status_code == 200
+    assert "김현우" not in store.load_canon().characters
+
+
+def test_renaming_through_a_plain_canon_save_is_refused(client):
+    """That path changes one field and none of the eight other files."""
+    pid = client.post("/api/projects", json={"idea": "아이디어"}).json()["id"]
+    _seed_canon(pid)
+    c = client.get(f"/api/projects/{pid}/canon").json()
+    c["characters"]["김현우"]["name"] = "박철수"
+    r = client.put(f"/api/projects/{pid}/canon", json={"canon": c})
+    assert r.status_code == 400
+    assert "이름 변경" in r.json()["detail"]

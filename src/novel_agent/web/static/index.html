@@ -42,6 +42,10 @@
   .cand.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
   .cand h3{margin:0 0 6px;font-size:14px}
   .k{color:var(--dim);font-size:11px}
+  .cc{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:9px;background:#0f1119}
+  .cc label{display:block;font-size:11px;color:var(--dim);margin-top:7px}
+  .cc input[type=text],.cc textarea{width:100%;box-sizing:border-box}
+  .cc .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   #log{font-family:ui-monospace,monospace;font-size:11px;color:var(--dim);max-height:120px;overflow:auto}
   .steps{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
   .steps span{font-size:11px;padding:3px 9px;border-radius:999px;background:#22252f;color:var(--dim)}
@@ -87,11 +91,15 @@
         <button onclick="lock()" id="bLock" disabled>선택한 전제로 캐논 + 아크 계획 생성</button>
       </div>
       <div class="row" id="canonBar" style="margin-top:10px;display:none">
-        <button class="ghost" onclick="editCanon()" id="bEdit">캐논 직접 수정</button>
-        <button class="ghost" onclick="saveCanon()" id="bSaveCanon" style="display:none">저장</button>
+        <button class="ghost" onclick="editCanon()" id="bEdit">캐논 수정</button>
+        <button onclick="saveCanon()" id="bSaveCanon" style="display:none">저장</button>
+        <button class="ghost" onclick="closeCanonEdit()" id="bCloseCanon" style="display:none">닫기</button>
+        <button class="ghost" onclick="toggleCanonJson()" id="bCanonJson" style="display:none">고급(JSON)</button>
         <span id="canonMsg" class="k"></span>
       </div>
       <div id="canon" style="margin-top:10px"></div>
+      <div id="canonForm" style="display:none;margin-top:10px"></div>
+      <datalist id="statusList"><option value="active"><option value="퇴장"><option value="사망"><option value="실종"></datalist>
       <textarea id="canonEdit" rows="18" class="mono" style="display:none;margin-top:10px"></textarea>
 
       <div class="row" id="arcBar" style="margin-top:14px;display:none">
@@ -309,7 +317,8 @@ async function lock(){
 function renderCanon(st){
   const c = st.canon, v = st.voice;
   const chars = Object.values(c.characters||{}).map(x=>
-    `<tr><th>${x.is_main_cast?'주요':'조연'} ${esc(x.name)}</th><td>${esc((x.immutable_descriptors||[]).join(', '))}<br>
+    `<tr><th>${x.is_main_cast?'주요':'조연'} ${esc(x.name)}${x.status&&x.status!=='active'?` <span class="pill dim">${esc(x.status)}</span>`:''}</th><td>${esc((x.immutable_descriptors||[]).join(', '))}<br>
+     ${x.personality?`<span class="k">성격</span> ${esc(x.personality)}<br>`:''}
      <span class="k">${esc(x.voice.speech_register)} / ${esc(x.voice.honorific_pattern)}</span></td></tr>`).join('');
   $('#canonBar').style.display='';
   $('#canon').innerHTML = `<table>${chars}
@@ -408,26 +417,153 @@ async function abandonSeed(id){
 }
 
 // ── canon hand-editing (regeneration re-rolls the parts you liked) ──────────
+// Form editing (coworker feedback 2). The JSON editor stays behind 고급 — it is
+// how a field the form does not show gets fixed, but nobody should need it to
+// change a name or a personality.
+let CANON = null, CANON_JSON = false;
+const LINES = v => (v||[]).join('\n');
+const SPLIT = (v, sep) => v.split(sep).map(x=>x.trim()).filter(Boolean);
+const FILE_LABEL = {'canon.json':'캐논', 'canon.authored.json':'리셋 기준점', 'north_star.json':'전제',
+  'arc_map.json':'아크 계획', 'voice_bible.json':'보이스 바이블', 'foreshadow.json':'떡밥 장부',
+  'summary.json':'줄거리 요약', 'genre_profile.json':'장르 프로필'};
+
 async function editCanon(){
-  const c = await api(`/api/projects/${PID}/canon`);
-  $('#canonEdit').value = JSON.stringify(c, null, 2);
-  $('#canonEdit').style.display=''; $('#canon').style.display='none';
-  $('#bSaveCanon').style.display=''; $('#bEdit').style.display='none';
-  $('#canonMsg').textContent='필요한 부분만 고치세요. 저장하면 version이 올라가고 author 편집으로 기록됩니다.';
+  CANON = await api(`/api/projects/${PID}/canon`); CANON_JSON = false;
+  canonEditing(true); renderCanonForm();
+  $('#canonMsg').textContent = '저장하면 작가 편집으로 기록되고, 이후 자동 추출이 이 내용을 덮어쓰지 않습니다.';
+}
+function canonEditing(on){
+  $('#canon').style.display = on ? 'none' : '';
+  $('#canonForm').style.display = on && !CANON_JSON ? '' : 'none';
+  $('#canonEdit').style.display = on && CANON_JSON ? '' : 'none';
+  for (const id of ['#bSaveCanon','#bCloseCanon','#bCanonJson']) $(id).style.display = on ? '' : 'none';
+  $('#bEdit').style.display = on ? 'none' : '';
+}
+function closeCanonEdit(){ canonEditing(false); $('#canonMsg').textContent=''; }
+function toggleCanonJson(){
+  if(CANON_JSON){
+    try { CANON = JSON.parse($('#canonEdit').value); } catch(e){ return $('#canonMsg').textContent = 'JSON 형식 오류: '+e.message; }
+    CANON_JSON = false; renderCanonForm();
+  } else { readCanonForm(); $('#canonEdit').value = JSON.stringify(CANON, null, 2); CANON_JSON = true; }
+  canonEditing(true);
+  $('#bCanonJson').textContent = CANON_JSON ? '폼으로' : '고급(JSON)';
+}
+function field(key, path, label, value, kind='text'){
+  const a = `data-c="${esc(key)}" data-f="${path}" data-t="${kind}"`;
+  if(kind==='lines') return `<label>${label} <span class="k">(한 줄에 하나)</span></label><textarea rows="3" ${a}>${esc(LINES(value))}</textarea>`;
+  if(kind==='long')  return `<label>${label}</label><textarea rows="2" ${a}>${esc(value||'')}</textarea>`;
+  if(kind==='csv')   return `<label>${label} <span class="k">(쉼표로 구분)</span></label><input type="text" ${a} value="${esc((value||[]).join(', '))}">`;
+  return `<label>${label}</label><input type="text" ${a} ${path==='status'?'list="statusList"':''} value="${esc(value||'')}">`;
+}
+function charCard(c){
+  const k = c.name, v = c.voice || {};
+  return `<div class="cc">
+    <div class="row">
+      <input type="text" id="nm-${esc(k)}" value="${esc(k)}" style="flex:1;font-weight:700">
+      <button class="ghost" onclick="renameChar('${esc(k)}')">이름 변경</button>
+      <label class="k"><input type="checkbox" data-c="${esc(k)}" data-f="is_main_cast" data-t="bool" ${c.is_main_cast?'checked':''}> 주요 인물</label>
+      <button class="ghost" onclick="removeChar('${esc(k)}')">삭제</button>
+    </div>
+    <div class="two">
+      <div>${field(k,'aliases','별칭',c.aliases,'csv')}</div>
+      <div>${field(k,'status','상태 (퇴장·사망이면 이후 화에 등장 불가)',c.status)}</div>
+    </div>
+    ${field(k,'immutable_descriptors','외모·고정 특징',c.immutable_descriptors,'lines')}
+    ${field(k,'personality','성격',c.personality,'long')}
+    <div class="two">
+      <div>${field(k,'goals','목표',c.goals,'lines')}</div>
+      <div>${field(k,'secrets','비밀',c.secrets,'lines')}</div>
+    </div>
+    <div class="two">
+      <div>${field(k,'voice.speech_register','말투',v.speech_register)}</div>
+      <div>${field(k,'voice.honorific_pattern','존대 방식',v.honorific_pattern)}</div>
+    </div>
+    <div class="two">
+      <div>${field(k,'voice.speech_tics','말버릇',v.speech_tics,'lines')}</div>
+      <div>${field(k,'voice.exemplar_lines','예시 대사',v.exemplar_lines,'lines')}</div>
+    </div>
+  </div>`;
+}
+function renderCanonForm(){
+  const c = CANON;
+  const gl = (c.glossary||[]).map((g,i)=>`<tr>
+      <td><input type="text" data-g="${i}" data-f="term" value="${esc(g.term)}"></td>
+      <td><input type="text" data-g="${i}" data-f="canonical_form" value="${esc(g.canonical_form)}"></td>
+      <td><input type="text" data-g="${i}" data-f="notes" value="${esc(g.notes||'')}"></td>
+      <td><button class="ghost" onclick="dropRow('glossary',${i})">×</button></td></tr>`).join('');
+  const rules = (c.world_rules||[]).map((r,i)=>`<tr>
+      <td><input type="text" data-r="${i}" data-f="text" value="${esc(r.text)}" style="width:100%"></td>
+      <td><label class="k"><input type="checkbox" data-r="${i}" data-f="hard" ${r.hard?'checked':''}> 절대</label></td>
+      <td><button class="ghost" onclick="dropRow('world_rules',${i})">×</button></td></tr>`).join('');
+  $('#canonForm').innerHTML =
+    Object.values(c.characters||{}).map(charCard).join('')
+    + `<div class="row" style="margin-bottom:12px"><input type="text" id="newChar" placeholder="새 인물 이름">
+         <button class="ghost" onclick="addChar()">인물 추가</button></div>`
+    + `<div class="k">용어집 — 본문에 쓸 표기</div><table><tr><th>용어</th><th>표기</th><th>메모</th><th></th></tr>${gl}</table>
+       <button class="ghost" onclick="addRow('glossary')" style="margin:6px 0 12px">용어 추가</button>`
+    + `<div class="k">세계관 규칙</div><table>${rules}</table>
+       <button class="ghost" onclick="addRow('world_rules')" style="margin-top:6px">규칙 추가</button>`;
+}
+function readCanonForm(){
+  if(CANON_JSON || !CANON) return;
+  document.querySelectorAll('#canonForm [data-c]').forEach(el=>{
+    const card = CANON.characters[el.dataset.c]; if(!card) return;
+    const path = el.dataset.f.split('.'), t = el.dataset.t;
+    const val = t==='bool' ? el.checked : t==='lines' ? SPLIT(el.value,'\n')
+              : t==='csv' ? SPLIT(el.value, ',') : el.value.trim();
+    let o = card; for(const p of path.slice(0,-1)) o = (o[p] = o[p] || {});
+    o[path.at(-1)] = val;
+  });
+  document.querySelectorAll('#canonForm [data-g]').forEach(el=>{ CANON.glossary[+el.dataset.g][el.dataset.f] = el.value.trim(); });
+  document.querySelectorAll('#canonForm [data-r]').forEach(el=>{
+    CANON.world_rules[+el.dataset.r][el.dataset.f] = el.type==='checkbox' ? el.checked : el.value.trim(); });
+}
+function addRow(kind){ readCanonForm();
+  CANON[kind].push(kind==='glossary' ? {term:'',canonical_form:'',notes:''} : {text:'',hard:true}); renderCanonForm(); }
+function dropRow(kind, i){ readCanonForm(); CANON[kind].splice(i,1); renderCanonForm(); }
+function addChar(){
+  readCanonForm(); const name = $('#newChar').value.trim();
+  if(!name) return;
+  if(CANON.characters[name]) return $('#canonMsg').textContent = `'${name}'은(는) 이미 있습니다`;
+  CANON.characters[name] = {name, aliases:[], is_main_cast:false, immutable_descriptors:[], personality:'',
+    goals:[], secrets:[], status:'active', voice:{speech_register:'',honorific_pattern:'',speech_tics:[],exemplar_lines:[]}};
+  renderCanonForm(); $('#canonMsg').textContent = `'${name}' 추가 — 저장해야 반영됩니다`;
+}
+function removeChar(k){
+  // The server refuses if an episode already named them; 퇴장 is the way out.
+  if(!confirm(`'${k}'을(를) 캐논에서 지웁니다. 이미 등장한 인물이면 저장이 거절되니 상태를 '퇴장'으로 바꾸세요.`)) return;
+  readCanonForm(); delete CANON.characters[k]; renderCanonForm();
+}
+async function putCanon(){
+  if(CANON_JSON) CANON = JSON.parse($('#canonEdit').value);
+  else readCanonForm();
+  return api(`/api/projects/${PID}/canon`,'PUT',{canon:CANON});
+}
+async function renameChar(old){
+  const neu = document.getElementById('nm-'+old).value.trim();
+  if(!neu || neu===old) return;
+  try{
+    // Unsaved edits are saved first: the rename runs on what is on disk.
+    await putCanon();
+    const pre = await api(`/api/projects/${PID}/characters/${encodeURIComponent(old)}/rename`,'POST',{new_name:neu, dry_run:true});
+    const where = pre.changes.map(c=>`· ${FILE_LABEL[c.file]||c.file} ${c.count}곳`).join('\n');
+    if(!confirm(`'${old}' → '${neu}'\n\n바뀌는 곳:\n${where}` + (pre.warning ? `\n\n⚠ ${pre.warning}` : '') + '\n\n진행할까요?')) return;
+    const r = await api(`/api/projects/${PID}/characters/${encodeURIComponent(old)}/rename`,'POST',{new_name:neu});
+    CANON = await api(`/api/projects/${PID}/canon`); renderCanonForm();
+    $('#canonMsg').innerHTML = `<span class="pill ok">이름 변경</span> ${esc(old)} → ${esc(neu)}` + (r.warning?` · ${esc(r.warning)}`:'');
+    log(`이름 변경 ${old} → ${neu}`); applyState(await api('/api/projects/'+PID));
+  }catch(e){ $('#canonMsg').innerHTML = `<span class="pill bad">이름 변경 실패</span> ${esc(e.message)}`; }
 }
 async function saveCanon(){
   try{
-    const canon = JSON.parse($('#canonEdit').value);
-    const saved = await api(`/api/projects/${PID}/canon`,'PUT',{canon});
-    $('#canonEdit').style.display='none'; $('#canon').style.display='';
-    $('#bSaveCanon').style.display='none'; $('#bEdit').style.display='';
+    const saved = await putCanon();
+    canonEditing(false);
     $('#canonMsg').innerHTML = `<span class="pill ok">저장됨 v${saved.version}</span>`;
-    renderCanon({canon:saved, voice:{spec:''}}); log('캐논 수정 저장 v'+saved.version);
+    log('캐논 수정 저장 v'+saved.version);
     applyState(await api('/api/projects/'+PID));
   }catch(e){ $('#canonMsg').innerHTML = `<span class="pill bad">저장 실패</span> ${esc(e.message)}`; }
 }
 
-// ── episode ──────────────────────────────────────────────────────────────────
 // ── episode — a background job (one episode takes 12-20 minutes) ──────────────
 // As one synchronous request it outlived browser and tunnel wait limits; when the
 // connection dropped the prose area was blanked and the error went to the log

@@ -266,6 +266,21 @@ def canon_put(pid: str, body: CanonIn):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"캐논 형식이 올바르지 않습니다: {str(e)[:300]}") from e
     previous = store.load_canon()
+    from ..canon_edit import appeared_in
+
+    # A name lives in eight other files; changing it here would change one.
+    for key, card in canon.characters.items():
+        if card.name != key:
+            raise HTTPException(400, f"'{key}'의 이름 변경은 이름 변경 기능을 쓰세요 — "
+                                     "전제·아크 계획·보이스 바이블까지 함께 바뀌어야 합니다")
+    # Deleting someone a committed episode names makes canon contradict
+    # published prose. Retiring them keeps both true.
+    for name in set(previous.characters) - set(canon.characters):
+        gone = previous.characters[name]
+        eps = appeared_in(store, [name, *gone.aliases])
+        if eps:
+            raise HTTPException(409, f"'{name}'은(는) {', '.join(map(str, eps))}화에 등장해 "
+                                     "삭제할 수 없습니다. 상태를 '퇴장'으로 바꾸세요")
     canon.version = previous.version + 1
     canon.last_modified_by = "author"
     store.save_canon(canon)
@@ -392,6 +407,43 @@ def seed_abandon(pid: str, seed_id: str, body: AbandonIn):
     led.abandon(seed_id, episode=body.episode)
     store.save_foreshadow(led)
     return led.seeds[seed_id].model_dump(mode="json")
+
+
+class RenameIn(BaseModel):
+    new_name: str
+    dry_run: bool = False
+
+
+@app.post("/api/projects/{pid}/characters/{name}/rename")
+def character_rename(pid: str, name: str, body: RenameIn):
+    """Rename a character across every setup file (dry_run previews it).
+
+    Before episode 1 the name changes everywhere. Once episodes exist their
+    prose keeps the old name and canon keeps it as an alias. Refused while an
+    episode awaits approval, since that draft uses the old name.
+    """
+    from ..canon_edit import RenameError, rename_character
+
+    store = CanonStore(_dir(pid) / "_novel")
+    try:
+        report = rename_character(store, name, body.new_name, dry_run=body.dry_run)
+    except RenameError as e:
+        status = 409 if "승인" in str(e) else 400
+        raise HTTPException(status, str(e)) from e
+    if not body.dry_run:
+        # the console renders from these copies
+        state = _load(pid)
+        state["canon"] = store.load_canon().model_dump(mode="json")
+        state["north_star"] = store.load_north_star().model_dump(mode="json")
+        state["voice"] = store.load_voice_bible().model_dump(mode="json")
+        if (plan := store.load_arc_map()) is not None:
+            state["arc_map"] = plan.model_dump(mode="json")
+        _save(pid, state)
+    return {"old": report.old, "new": report.new,
+            "committed_episodes": report.committed_episodes,
+            "changes": [{"file": f, "count": n} for f, n in report.changes],
+            "alias_kept": report.alias_kept, "warning": report.warning,
+            "applied": not body.dry_run}
 
 
 @app.get("/api/projects")
