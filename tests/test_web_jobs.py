@@ -318,9 +318,11 @@ def test_progress_is_visible_while_the_serial_runs(client, monkeypatch):
     made = _charging(monkeypatch, hold_at=2)       # holds inside 2화
     job_id = client.post(f"/api/projects/{pid}/serial", json={"target_episodes": 3}).json()["job_id"]
 
-    job = _wait_for_stage(client, pid, job_id, "serial")
+    # 2화 is held mid-draft, so once its start is reported 1화's outcome is
+    # already recorded — waiting on the outcome alone raced the start report.
     deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and not job.get("progress", {}).get("outcomes"):
+    job = {}
+    while time.monotonic() < deadline and "2/3화" not in job.get("stage_label", ""):
         time.sleep(0.02)
         job = client.get(f"/api/projects/{pid}/jobs/{job_id}").json()
     assert "2/3화" in job["stage_label"]
