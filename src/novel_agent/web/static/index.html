@@ -118,6 +118,7 @@
         <label class="k"><input id="doRev" type="checkbox" checked> 수정 루프</label>
         <label class="k">반복 <input id="iters" type="number" value="2" min="1" max="4" style="width:56px"></label>
         <button onclick="writeEpisode()" id="bEp" disabled>집필</button>
+        <button class="ghost" onclick="cancelJob()" id="bCancel" style="display:none">취소</button>
       </div>
       <div id="epMeta" style="margin-top:10px"></div>
     </div>
@@ -205,6 +206,7 @@ async function createProject(){
 async function loadProject(id){ if(!id) return; applyState(await api('/api/projects/'+id)); log('불러옴 '+id); }
 
 function applyState(st){
+  const opened = PID !== st.id;
   PID = st.id; $('#idea').value = st.idea;
   const order = ['created','interviewed','answered','setup','locked','drafted'];
   $('#steps').innerHTML = order.map(s=>`<span class="${s===st.step?'on':''}">${s}</span>`).join('');
@@ -219,6 +221,7 @@ function applyState(st){
   if(st.canon) renderCanon(st);
   if(st.arc_map){ renderArcs(st.arc_map); $('#seedBar').style.display=''; }
   if(PID) loadPending();
+  if(opened) restoreLatestJob();
   renderCost(st.usage);
 }
 function renderCost(u){
@@ -425,16 +428,73 @@ async function saveCanon(){
 }
 
 // ── episode ──────────────────────────────────────────────────────────────────
+// ── episode — a background job (one episode takes 12-20 minutes) ──────────────
+// As one synchronous request it outlived browser and tunnel wait limits; when the
+// connection dropped the prose area was blanked and the error went to the log
+// at the bottom (coworker feedback 1). Now the request returns a job id at once,
+// progress is polled, and the last result survives a reload.
+let EP_POLL = null, EP_JOB = null;
 async function writeEpisode(){
-  busy('#bEp', true, 1); $('#prose').textContent = '집필 중… (수정 루프까지 수 분 소요)';
+  busy('#bEp', true, 1);
   try {
+    const n = +$('#epNo').value;
     const r = await api(`/api/projects/${PID}/episode`,'POST',{
-      episode:+$('#epNo').value, revise:$('#doRev').checked, iterations:+$('#iters').value});
+      episode:n, revise:$('#doRev').checked, iterations:+$('#iters').value});
+    log(`${n}화 집필 시작 — 10~20분 걸립니다. 창을 닫아도 서버에서 계속됩니다.`);
+    watchJob(r.job_id);
+  } catch(e){ busy('#bEp', false, 1); showEpError(e.message); }
+}
+function watchJob(id){
+  EP_JOB = id; clearInterval(EP_POLL);
+  busy('#bEp', true, 1); $('#bCancel').style.display='';
+  EP_POLL = setInterval(()=>pollJob(id), 3000); pollJob(id);
+}
+async function pollJob(id){
+  let j;
+  try { j = await api(`/api/projects/${PID}/jobs/${id}`); }
+  catch(e){ return; }                 // a missed poll is not a failed job
+  if(j.status === 'running'){ showProgress(j); return; }
+  clearInterval(EP_POLL); EP_POLL = null; EP_JOB = null;
+  $('#bCancel').style.display='none'; busy('#bEp', false, 1); $('#epMeta').innerHTML='';
+  if(j.status === 'done'){ renderEpisode(j.result); return; }
+  showEpError(j.status === 'cancelled'
+    ? '취소했습니다. 커밋 전에 멈췄으므로 캐논은 바뀌지 않았습니다.'
+    : (j.error || j.status));
+}
+function showProgress(j){
+  const min = Math.max(0, Math.round((Date.now()/1000 - j.started_at) / 60));
+  $('#epMeta').innerHTML = `<span class="pill warn">${esc(j.stage_label||'')}`
+    + `${j.stage_detail ? ' ' + esc(j.stage_detail) : ''}</span> <span class="k">${min}분 경과</span>`;
+  $('#prose').textContent = '집필 중… 단계가 바뀌면 위에 표시됩니다.';
+}
+function showEpError(msg){
+  // In the prose area, where the author is looking — not only in the log.
+  $('#epScore').innerHTML = `<span class="pill bad">집필 실패</span>`;
+  $('#prose').textContent = msg;
+  log('실패: ' + esc(msg));
+}
+async function cancelJob(){
+  if(!EP_JOB) return;
+  try { await api(`/api/projects/${PID}/jobs/${EP_JOB}/cancel`,'POST',{});
+        log('취소 요청 — 진행 중인 단계가 끝나면 멈춥니다.'); }
+  catch(e){ log('취소 실패: ' + esc(e.message)); }
+}
+async function restoreLatestJob(){
+  // A reload, or a reconnect after the connection dropped mid-episode.
+  try {
+    const j = await api(`/api/projects/${PID}/jobs/latest?kind=episode`);
+    if(!j.id) return;
+    if(j.status === 'running') watchJob(j.id);
+    else if(j.status === 'done') renderEpisode(j.result);
+    else if(j.status !== 'cancelled') showEpError(j.error || j.status);
+  } catch(e){ /* no jobs yet */ }
+}
+function renderEpisode(r){
     $('#prose').textContent = r.prose;
     // Advance to the next episode once this one is in canon. The field was
     // initialised to 1 and never written back, so pressing 집필 again silently
     // re-committed 1화 — doubling its pacing debt and its 떡밥.
-    if (r.committed) $('#epNo').value = (+$('#epNo').value) + 1;
+    $('#epNo').value = r.committed ? r.episode + 1 : r.episode;
     const cls = r.score>=85?'ok':(r.score>=70?'warn':'bad');
     // The verdict pill must follow the GATE, not the style score: a
     // continuity-blocked episode can score 100 and was rendering green.
@@ -464,8 +524,6 @@ async function writeEpisode(){
     log(`집필 완료 ${r.chars}자 · ${r.first_score}→${r.score}점`
         + (r.continuity_blocked ? ' · ⚠ 연속성 위반으로 미통과' : ''));
     if(r.fact_requests?.length) log('FACT 요청: '+esc(r.fact_requests.join(' / ')));
-  } catch(e){ $('#prose').textContent=''; log('실패: '+esc(e.message)); }
-  finally { busy('#bEp', false, 1); }
 }
 function violTable(vs){
   if(!vs || !vs.length) return '<span class="pill ok">위반 없음</span>';

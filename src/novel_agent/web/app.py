@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..artifacts import Draft, Summary
+from . import jobs
 from ..canon_store import CanonStore
 from ..canonicalizer import canonicalize_episode, commit_episode_state
 from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
@@ -111,7 +112,7 @@ def _guard(fn):
     """Turn provider errors into readable 4xx/5xx instead of a stack trace."""
     try:
         return fn()
-    except HTTPException:
+    except (HTTPException, jobs.Cancelled):
         raise
     except LLMRefusal as e:
         raise HTTPException(422, f"모델이 응답을 거부했거나 비어 있음: {e}") from e
@@ -497,16 +498,37 @@ def lock(pid: str, body: LockIn):
     return _guard(run)
 
 
-@app.post("/api/projects/{pid}/episode")
+@app.post("/api/projects/{pid}/episode", status_code=202)
 def episode(pid: str, body: DraftIn):
-    """Plan → draft → (optionally) revise one episode, with lint results."""
-    state = _load(pid)
+    """Start writing one episode as a background job; poll /jobs/{id}.
+
+    A single episode takes 12-20 minutes. As one synchronous request that was
+    past the wait limit of most browsers and tunnels, and a dropped connection
+    left the console blank while the server finished the episode anyway
+    (coworker feedback 1).
+    """
     store = CanonStore(_dir(pid) / "_novel")
     if not (store.root / "canon.json").exists():
         raise HTTPException(400, "run /lock first")
+    _llm(_load(pid))          # fail fast on a missing key, before any job exists
+    return _start_job(pid, "episode",
+                      lambda ctx: _guard(lambda: _write_episode(pid, body, ctx)),
+                      meta={"episode": body.episode})
+
+
+def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
+    """Plan → draft → revise → judge → commit, reporting each stage.
+
+    Nothing touches canon before the commit stage, so a cancel honoured at any
+    earlier boundary leaves the project exactly as it was.
+    """
+    state = _load(pid)
+    store = CanonStore(_dir(pid) / "_novel")
+    n = body.episode
 
     def run():
         llm, usage = _llm(state)
+        ctx.stage("plan", f"{n}화 설계")
         profile = store.load_genre_profile()
         ns = store.load_north_star()
         canon = store.load_canon()
@@ -533,15 +555,20 @@ def episode(pid: str, body: DraftIn):
                         if a.get("hard_rule")],
             anti_patterns=profile.forbidden_anti_patterns,
         )
+        ctx.stage("draft", f"{n}화 집필")
         draft = draft_episode(llm, pack, max_tokens=32768)
+        ctx.stage("judge", "도입·절단 판정")
         structural = judge_opening_and_ending(llm, draft)
         first = style_score(draft.prose, target_chars=beats.length_target,
                             forbidden_terms=forbidden)
 
-        result = None
-        if body.revise:
-            result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
-                                  max_iterations=body.iterations,
+        # The gate runs whether or not the loop does: with revise off the
+        # episode used to be committed unchecked while the console said 미통과.
+        # max_iterations=0 is a pure re-evaluation with no LLM rewrite.
+        result = revise_draft(llm, draft, pack, target_chars=beats.length_target,
+                                  max_iterations=body.iterations if body.revise else 0,
+                                  on_iteration=lambda i, cap: ctx.stage(
+                                      "revise", f"{n}화 수정", f"{i}/{cap}회"),
                                   forbidden_terms=forbidden,
                                   # free rules run every iteration so canon breaks
                                   # get FIXED, not merely reported at the end
@@ -550,20 +577,20 @@ def episode(pid: str, body: DraftIn):
                                   structural_findings=structural,
                                   structural_recheck=lambda d:
                                       judge_opening_and_ending(llm, d))
-            draft = result.draft
+        draft = result.draft
 
         # Track A, full pass — one judge call on the final draft. The drafter
         # cannot be trusted to self-report invented facts (phase0-results.md),
         # so this is the only thing standing between an unattended run and
         # accumulating canon damage.
+        ctx.stage("judge", "연속성·크래프트 판정")
         continuity = check_continuity(llm, draft, beats, canon)
         # Track B — advisory, never gates (DESIGN §3)
         # The structural half must be the verdict on the prose the author is
         # about to read — result.structural when a rewrite happened, otherwise
         # the original judgement still describes it.
         verdict = judge_craft(llm, draft, profile, canon, store.load_voice_bible())
-        craft = list(verdict.findings) + list(
-            result.structural if result else structural)
+        craft = list(verdict.findings) + list(result.structural)
 
         # The prose file is always written — the author must be able to read a
         # rejected draft. Canon is a different matter.
@@ -575,9 +602,11 @@ def episode(pid: str, body: DraftIn):
         # damage through — and a retry would re-plant the same seeds under new
         # ids, pushing 완결 further away each time.
         blocked = blocks_acceptance(continuity)
-        committed = not blocked and (result.passed if result else True)
+        committed = not blocked and result.passed
         canon_delta = None
         if committed:
+            # last boundary: past this point the episode is in canon
+            ctx.stage("commit", "캐논 반영")
             commit_episode_state(store, draft, beats,
                                  payoff_landed=verdict.payoff_landed)
             # The LLM half of the Canonicalizer. Runs ONLY on an accepted
@@ -594,9 +623,9 @@ def episode(pid: str, body: DraftIn):
             "first_score": first,
             "score": style_score(draft.prose, target_chars=beats.length_target,
                                  forbidden_terms=forbidden),
-            "iterations": result.iterations if result else 0,
+            "iterations": result.iterations,
             # a continuity blocker overrides a passing style score (hard gate)
-            "passed": (bool(result.passed) and not blocked) if result else None,
+            "passed": bool(result.passed) and not blocked,
             "continuity": [_violation_json(v) for v in continuity],
             "continuity_blocked": blocked,
             "craft": [_violation_json(v) for v in craft],
@@ -622,7 +651,42 @@ def episode(pid: str, body: DraftIn):
         out["usage"] = _record_usage(state, usage)
         _save(pid, state)
         return out
-    return _guard(run)
+    return run()
+
+# ── background jobs ──────────────────────────────────────────────────────────
+def _start_job(pid: str, kind: str, fn, *, meta: dict | None = None) -> dict:
+    try:
+        job = jobs.start(_dir(pid), kind, fn, meta=meta)
+    except jobs.Busy as b:
+        j = b.job
+        where = j.get("stage_label", "") + (f" {j['stage_detail']}" if j.get("stage_detail") else "")
+        raise HTTPException(409, f"이미 실행 중인 작업이 있습니다 ({where}). "
+                                 "끝나거나 취소한 뒤 다시 시도하세요.") from b
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+@app.get("/api/projects/{pid}/jobs/latest")
+def job_latest(pid: str, kind: str | None = None):
+    """The most recent job — how the console gets its last result back after a
+    reload or a dropped connection."""
+    return jobs.latest(_dir(pid), kind) or {"id": None}
+
+
+@app.get("/api/projects/{pid}/jobs/{job_id}")
+def job_get(pid: str, job_id: str):
+    job = jobs.get(_dir(pid), job_id)
+    if job is None:
+        raise HTTPException(404, f"그런 작업이 없습니다: {job_id}")
+    return job
+
+
+@app.post("/api/projects/{pid}/jobs/{job_id}/cancel")
+def job_cancel(pid: str, job_id: str):
+    """Stop at the next stage boundary. Nothing is committed before the last
+    stage, so a cancelled episode leaves canon untouched."""
+    if not jobs.cancel(_dir(pid), job_id):
+        raise HTTPException(400, "실행 중인 작업이 아닙니다")
+    return {"cancelling": job_id}
 
 
 # ── static UI ────────────────────────────────────────────────────────────────

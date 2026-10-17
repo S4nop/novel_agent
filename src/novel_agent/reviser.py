@@ -156,6 +156,10 @@ def revise_draft(
     # what the reviser is told to fix; this is what the gate is told to believe.
     structural_recheck=None,
     max_tokens: int = 32768,
+    # Called before each rewrite with (this iteration, the cap). A rewrite is a
+    # whole-episode call of several minutes, so a caller showing progress (or
+    # honouring a cancel) needs a hook between them.
+    on_iteration=None,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
     best = draft
@@ -174,6 +178,8 @@ def revise_draft(
             break
 
         iterations += 1
+        if on_iteration is not None:
+            on_iteration(iterations, max_iterations)
         prose = llm.text(
             [
                 # Byte-identical to the drafter's system block, so the
