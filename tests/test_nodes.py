@@ -432,7 +432,6 @@ def test_directions_are_drawn_from_what_the_planner_would_see():
 
 
 def test_an_empty_proposal_is_an_error_not_a_silent_blank():
-    import pytest
     with pytest.raises(ValueError):
         _propose(ScriptedLLM(_directions_draft(0)))
 
