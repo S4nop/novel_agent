@@ -172,6 +172,20 @@ class PlannedSeed(BaseModel):
     planned_thread_id: str = ""                    # drawn from the ArcMap, if any
 
 
+class IntendedDeviation(BaseModel):
+    """A declared break of an established setting (appearance, habit, speech
+    tic, honorific pattern, ability).
+
+    The author's rule: a character may break canon only for a reason — a 떡밥,
+    or an emotion strong enough that even the habit slips. Declaring it at
+    planning time is what lets everything undeclared be judged a contradiction.
+    """
+    character: str
+    setting: str                                   # the canon setting being broken, quoted
+    reason_kind: str = "기타"                      # 떡밥 | 감정 | 기타
+    reason: str = ""
+
+
 class BeatSheet(BaseModel):
     """L3 — one episode's plan."""
     episode_number: int
@@ -185,6 +199,7 @@ class BeatSheet(BaseModel):
     length_target: int = 5200
     pov: str = "1인칭"
     entities_present: list[str] = Field(default_factory=list)
+    deviations: list[IntendedDeviation] = Field(default_factory=list)
 
     def beat_types(self) -> list[BeatType]:
         return [b.beat_type for b in self.beats]
@@ -295,6 +310,7 @@ class EpisodeRecord(BaseModel):
     accepted_draft_hash: str
     human_edited: bool = False
     beat_tags: list[BeatType] = Field(default_factory=list)
+    deviations: list[IntendedDeviation] = Field(default_factory=list)
 
 
 class CharacterUpdate(BaseModel):

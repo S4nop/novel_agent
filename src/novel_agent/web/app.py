@@ -688,6 +688,8 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
         out = {
             "episode": body.episode,
             "beat_sheet": beats.model_dump(mode="json"),
+            # top-level so the console can pill it without digging into the plan
+            "deviations": [d.model_dump(mode="json") for d in beats.deviations],
             "prose": draft.prose,
             "chars": draft.char_count,
             "target": beats.length_target,

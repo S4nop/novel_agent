@@ -47,8 +47,13 @@ RULE_CANON_CONTRADICTION = "캐논 위반: 사실 모순"
 # "석 달째 일을 못 나갔다".
 RULE_STORY_CONTRADICTION = "앞뒤 모순: 앞선 화와 충돌"
 RULE_INTERNAL_CONTRADICTION = "앞뒤 모순: 이 화 안에서 충돌"
+# A break the plan declared, whose reason the prose never shows: "떡밥이라서" or
+# "감정이 격해서" is only an excuse the reader can see. Declared-but-invisible is
+# the same story failure as an undeclared break.
+RULE_UNJUSTIFIED_EXCEPTION = "앞뒤 모순: 근거 없는 예외"
 _KIND_RULES = {"canon": RULE_CANON_CONTRADICTION, "earlier": RULE_STORY_CONTRADICTION,
-               "internal": RULE_INTERNAL_CONTRADICTION}
+               "internal": RULE_INTERNAL_CONTRADICTION,
+               "unjustified": RULE_UNJUSTIFIED_EXCEPTION}
 
 
 # A canonical_form is the exact string to write. Models keep returning it with a
@@ -117,6 +122,13 @@ def _canon_digest(canon: Canon) -> str:
             bits.append(f"(별칭 {', '.join(c.aliases)})")
         if c.immutable_descriptors:
             bits.append("· " + ", ".join(c.immutable_descriptors))
+        # Habits, speech and ability are canon facts too: acting against them is
+        # a contradiction, and the judge cannot see that without being shown them.
+        v = c.voice
+        for label, value in (("말투", v.speech_register), ("존대", v.honorific_pattern),
+                             ("말버릇", ", ".join(v.speech_tics))):
+            if value:
+                bits.append(f"· {label}={value}")
         for label, value in (("상태", c.status), ("위치", c.current_location),
                              ("컨디션", c.condition), ("능력", c.power_level)):
             if value:
@@ -132,6 +144,15 @@ def _canon_digest(canon: Canon) -> str:
         "", "[불변 규칙]", *(rules or ["- 없음"]),
         "", "[용어 정본]", *(gloss or ["- 없음"]),
     ])
+
+
+def _declared_exceptions(beats: BeatSheet) -> str:
+    """Only the declared breaks. The rest of the plan stays hidden from the
+    judge (invariant #3); the declaration is the one part it needs, to tell an
+    excused break from an undeclared one."""
+    return "\n".join(
+        f"- {d.character}: '{d.setting}' ({d.reason_kind}) — {d.reason}"
+        for d in beats.deviations) or "없음"
 
 
 def _severity(raw: str) -> str:
@@ -168,6 +189,7 @@ def check_continuity(
                     canon=_canon_digest(canon),
                     story_so_far=(summary.story_so_far if summary and summary.story_so_far
                                   else "없음 — 첫 화이거나 기록이 없습니다"),
+                    declared_exceptions=_declared_exceptions(beats),
                     episode_number=draft.episode_number,
                     prose=draft.prose)},
             ],
@@ -180,7 +202,8 @@ def check_continuity(
         if not (f.canon_fact and f.prose_claim):
             continue
         kind = (f.kind or "canon").strip().lower()
-        label = {"earlier": "앞선 화", "internal": "앞부분"}.get(kind, "캐논")
+        label = {"earlier": "앞선 화", "internal": "앞부분",
+                                  "unjustified": "선언된 예외"}.get(kind, "캐논")
         findings.append(Violation(
             rule=_KIND_RULES.get(kind, RULE_CANON_CONTRADICTION),
             severity=_severity(f.severity), count=1, limit="0건", limit_num=0,

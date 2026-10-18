@@ -95,6 +95,12 @@ def commit_episode_state(
     #    can replace this later; an empty summary was starving the next episode)
     summary: Summary = store.load_summary()
     line = f"{beats.episode_number}화: {beats.the_one_progression or beats.opening_hook}"
+    if beats.deviations:
+        # Later planners and judges read only this line, so the reason travels
+        # with it — otherwise the next episode sees a broken habit and no why.
+        line += " (의도된 예외: " + "; ".join(
+            f"{d.character} — {d.setting} / {d.reason_kind}: {d.reason}"
+            for d in beats.deviations) + ")"
     # Replace this episode's previous line IN PLACE, if any: a re-commit used
     # to append a second one, teaching every later plan that the episode
     # happened twice. Appending the replacement would put 1화 after 2화, which
@@ -118,6 +124,7 @@ def commit_episode_state(
         accepted_draft_hash=episode_hash(draft.prose),
         human_edited=human_edited,
         beat_tags=beats.beat_types(),
+        deviations=beats.deviations,
     )
     store.commit_episode(record)
     return record

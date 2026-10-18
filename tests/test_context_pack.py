@@ -131,3 +131,17 @@ def test_the_stable_prefix_does_not_move_when_the_episodes_cast_changes():
     b = _build(the_canon=c, beats=beat_sheet(3, entities_present=[]))
 
     assert a.cached_prefix == b.cached_prefix
+
+
+def test_a_declared_deviation_is_shown_to_the_drafter_with_its_reason():
+    from novel_agent.artifacts import IntendedDeviation
+    dev = IntendedDeviation(character="김현우", setting="…쯧 하고 혀를 찬다",
+                            reason_kind="감정", reason="동료의 죽음에 말문이 막힌다")
+    suffix = _build(beats=beat_sheet(1, deviations=[dev])).volatile_suffix
+    assert "김현우" in suffix and "…쯧 하고 혀를 찬다" in suffix
+    assert "동료의 죽음에 말문이 막힌다" in suffix
+    assert "장면" in suffix and "드러나" in suffix
+
+
+def test_a_beat_sheet_without_deviations_adds_no_exception_block():
+    assert "의도된 예외" not in _build().volatile_suffix

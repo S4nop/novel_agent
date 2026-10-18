@@ -13,6 +13,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from novel_agent.schemas import BeatSheetDraft, DeviationDraft
 from novel_agent.web import app as web
 
 from .test_driver import CLEAN, DIRTY, FakeLLM
@@ -119,6 +120,37 @@ def test_the_last_result_is_still_there_after_a_reload(client, monkeypatch):
     latest = client.get(f"/api/projects/{pid}/jobs/latest").json()
     assert latest["id"] == job_id
     assert latest["result"]["prose"] == CLEAN
+
+
+class DeviatingLLM(FakeLLM):
+    """A planner that declares one 의도된 예외 for the episode."""
+
+    def structured(self, messages, schema):
+        draft = super().structured(messages, schema)
+        if schema is BeatSheetDraft:
+            draft.deviations = [DeviationDraft(
+                character="노준서", setting="손에서 단말기를 놓지 않는다",
+                reason_kind="감정", reason="첫 패소 충격")]
+        return draft
+
+
+def test_the_episode_result_lists_the_deviations_the_plan_declared(client, monkeypatch):
+    pid, _ = _project(client)
+    _use(monkeypatch, DeviatingLLM())
+    job_id = client.post(f"/api/projects/{pid}/episode", json={"episode": 1}).json()["job_id"]
+
+    result = _wait(client, pid, job_id)["result"]
+    assert result["deviations"] == [{
+        "character": "노준서", "setting": "손에서 단말기를 놓지 않는다",
+        "reason_kind": "감정", "reason": "첫 패소 충격"}]
+
+
+def test_the_episode_result_has_no_deviations_when_the_plan_declared_none(client, monkeypatch):
+    pid, _ = _project(client)
+    _use(monkeypatch, FakeLLM())
+    job_id = client.post(f"/api/projects/{pid}/episode", json={"episode": 1}).json()["job_id"]
+
+    assert _wait(client, pid, job_id)["result"]["deviations"] == []
 
 
 def test_a_second_job_is_refused_while_one_is_running(client, monkeypatch):

@@ -174,3 +174,41 @@ def test_a_reinforced_seed_can_still_be_paid_off(tmp_path):
     commit_episode_state(s, Draft(episode_number=3, prose="c"), _beats(3, pay=[sid]))
 
     assert s.load_foreshadow().seeds[sid].status is SeedStatus.PAID
+
+
+def test_a_committed_deviation_is_kept_on_the_record_and_noted_in_the_summary(tmp_path):
+    from novel_agent.artifacts import IntendedDeviation
+    s = _store(tmp_path)
+    dev = IntendedDeviation(character="노준서", setting="단말기를 놓지 않는다",
+                            reason_kind="감정", reason="첫 패소 충격")
+    beats = _beats(4)
+    beats.deviations = [dev]
+    rec = commit_episode_state(s, Draft(episode_number=4, prose="4화"), beats)
+    assert rec.deviations == [dev]
+    assert s.load_episode(4).deviations == [dev]
+    assert s.load_summary().story_so_far == (
+        "4화: 4화 진전 (의도된 예외: 노준서 — 단말기를 놓지 않는다 / 감정: 첫 패소 충격)")
+
+
+def test_several_deviations_are_all_noted_on_the_summary_line_in_order(tmp_path):
+    from novel_agent.artifacts import IntendedDeviation
+    s = _store(tmp_path)
+    beats = _beats(4)
+    beats.deviations = [
+        IntendedDeviation(character="A", setting="s1", reason_kind="감정", reason="r1"),
+        IntendedDeviation(character="B", setting="s2", reason_kind="떡밥", reason="r2")]
+    commit_episode_state(s, Draft(episode_number=4, prose="4화"), beats)
+    assert s.load_summary().story_so_far == (
+        "4화: 4화 진전 (의도된 예외: A — s1 / 감정: r1; B — s2 / 떡밥: r2)")
+
+
+def test_re_committing_an_episode_replaces_its_deviation_note_in_place(tmp_path):
+    from novel_agent.artifacts import IntendedDeviation
+    s = _store(tmp_path)
+    commit_episode_state(s, Draft(episode_number=1, prose="1화"), _beats(1))
+    first = _beats(2)
+    first.deviations = [IntendedDeviation(character="A", setting="s", reason_kind="기타",
+                                          reason="r")]
+    commit_episode_state(s, Draft(episode_number=2, prose="2화"), first)
+    commit_episode_state(s, Draft(episode_number=2, prose="2화"), _beats(2))
+    assert s.load_summary().story_so_far == "1화: 1화 진전\n2화: 2화 진전"

@@ -337,3 +337,64 @@ def test_the_new_rules_explain_themselves_in_the_ui():
     for r in (RULE_INTERNAL_CONTRADICTION, RULE_STORY_CONTRADICTION):
         m = rule_meta(r)
         assert m and m.why and m.fix, r
+
+
+# ── 의도된 예외: habits are canon, declared breaks are the only excuse ─────────
+def _beats_declaring(*deviations) -> BeatSheet:
+    from novel_agent.artifacts import IntendedDeviation
+    b = _beats()
+    b.deviations = [IntendedDeviation(character=c, setting=s, reason_kind=k, reason=r)
+                    for c, s, k, r in deviations]
+    return b
+
+
+def test_the_judge_is_shown_a_characters_habits_and_speech_as_canon():
+    from novel_agent.artifacts import VoiceCard
+    canon = _canon(노준서=CharacterCard(
+        name="노준서", voice=VoiceCard(speech_register="건조한 반말", honorific_pattern="의뢰인에게만 존대",
+                                       speech_tics=["그러니까 말이지"])))
+    judge = StubJudge(ContinuityReportDraft(findings=[]))
+    check_continuity(judge, _draft("본문"), _beats(), canon)
+    sent = judge.prompts[-1]
+    assert "건조한 반말" in sent and "의뢰인에게만 존대" in sent and "그러니까 말이지" in sent
+
+
+def test_the_judge_is_shown_declared_exceptions_and_nothing_else_of_the_plan():
+    judge = StubJudge(ContinuityReportDraft(findings=[]))
+    check_continuity(judge, _draft("본문"),
+                     _beats_declaring(("노준서", "단말기를 놓지 않는다", "감정", "첫 패소 충격")),
+                     Canon())
+    sent = judge.prompts[-1]
+    assert "노준서" in sent and "단말기를 놓지 않는다" in sent and "첫 패소 충격" in sent
+    assert "진전" not in sent and "절단" not in sent and "훅" not in sent
+
+
+def test_the_judge_is_told_there_are_no_exceptions_when_none_were_declared():
+    judge = StubJudge(ContinuityReportDraft(findings=[]))
+    check_continuity(judge, _draft("본문"), _beats(), Canon())
+    assert "없음" in judge.prompts[-1].split("[검사 대상")[0].split("[선언된 예외")[-1]
+
+
+def test_a_declared_break_whose_reason_is_not_in_the_prose_is_a_major_contradiction():
+    from novel_agent.continuity import RULE_UNJUSTIFIED_EXCEPTION
+    vs = check_continuity(_judged("minor", "unjustified"), _draft("노준서가 빈손으로 앉아 있었다."),
+                          _beats_declaring(("노준서", "단말기를 놓지 않는다", "감정", "첫 패소 충격")),
+                          Canon())
+    v = next(x for x in vs if x.rule == RULE_UNJUSTIFIED_EXCEPTION)
+    assert v.severity == "major"
+    assert blocks_acceptance(vs) is True
+
+
+def test_an_unjustified_exception_is_handed_to_the_reviser_with_the_judged_findings():
+    from novel_agent.continuity import RULE_UNJUSTIFIED_EXCEPTION, judged_contradictions
+    vs = check_continuity(_judged("major", "unjustified"), _draft("..."), _beats(), Canon())
+    assert [v.rule for v in judged_contradictions(vs)] == [RULE_UNJUSTIFIED_EXCEPTION]
+
+
+def test_an_unjustified_exception_explains_itself_in_the_ui_and_reads_as_a_judged_finding():
+    from novel_agent.continuity import RULE_UNJUSTIFIED_EXCEPTION
+    from novel_agent.reviser import _JUDGED_PREFIXES
+    from novel_agent.style import rule_meta
+    m = rule_meta(RULE_UNJUSTIFIED_EXCEPTION)
+    assert m and m.why and m.fix
+    assert RULE_UNJUSTIFIED_EXCEPTION.startswith(_JUDGED_PREFIXES)

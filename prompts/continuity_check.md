@@ -4,6 +4,9 @@ ${canon}
 [지금까지의 이야기 — 앞선 화에서 일어난 일]
 ${story_so_far}
 
+[선언된 예외 — 계획 단계에서 의도적으로 깨기로 한 설정]
+${declared_exceptions}
+
 [검사 대상: ${episode_number}화 본문]
 ${prose}
 

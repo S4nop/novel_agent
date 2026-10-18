@@ -26,6 +26,7 @@ from .artifacts import (
     ContentRating,
     GenreProfile,
     GlossaryEntry,
+    IntendedDeviation,
     NorthStar,
     PlannedSeed,
     PlannedThread,
@@ -338,6 +339,26 @@ def _cast_roles(canon: Canon) -> str:
     return "\n".join(lines) or "미정"
 
 
+def _cast_habits(canon: Canon) -> str:
+    """The cast with the habits a plan could break, one compact line each.
+
+    Names alone left the planner blind to what it was contradicting: a plan
+    that has a terminal-clutching character sit empty-handed was written
+    without ever seeing the setting. Declaring a deviation needs the setting
+    in front of the planner.
+    """
+    lines = []
+    for name, card in canon.characters.items():
+        v = card.voice
+        bits = [b for b in (
+            ", ".join(card.immutable_descriptors),
+            f"말투 {v.speech_register}" if v.speech_register else "",
+            f"존대 {v.honorific_pattern}" if v.honorific_pattern else "",
+            f"말버릇 {', '.join(v.speech_tics)}" if v.speech_tics else "") if b]
+        lines.append(f"- {name}: " + " · ".join(bits) if bits else f"- {name}")
+    return "\n".join(lines)
+
+
 def plan_arcs(llm: LLM, *, north_star: NorthStar, profile: GenreProfile,
               canon: Canon, total_episodes: int) -> ArcMap:
     """L2 ArcPlanner — the overall picture, built once before episode 1.
@@ -444,6 +465,54 @@ def _seed_deadline(raw: int | None, magnitude: SeedMagnitude, episode: int,
     return max(total or (episode + max(1, cadence) * 3), episode + 1)
 
 
+_DEVIATION_KINDS = ("떡밥", "감정", "기타")
+_MAX_DEVIATIONS = 2
+
+
+def _deviations(drafts, is_final: bool = False) -> list[IntendedDeviation]:
+    """Declared breaks, cleaned. Entries without a character, setting or reason
+    are dropped, and only the first two are excused: the rest are not
+    forgiven, they are judged as the contradictions they are. Whitespace is
+    collapsed because the reason is written into the one-line story summary,
+    where a newline would orphan a fragment on the next in-place re-commit."""
+    out = []
+    for d in drafts:
+        character, setting, reason = (" ".join(s.split()) for s in
+                                      (d.character, d.setting, d.reason))
+        if not (character and setting and reason):
+            continue
+        kind = d.reason_kind.strip()
+        kind = kind if kind in _DEVIATION_KINDS else "기타"
+        if is_final and kind == "떡밥":
+            kind = "기타"       # no later episode exists to pay the clue off
+        out.append(IntendedDeviation(
+            character=character, setting=setting, reason=reason, reason_kind=kind))
+    return out[:_MAX_DEVIATIONS]
+
+
+def _deviation_seeds(deviations: list[IntendedDeviation], planted: list[PlannedSeed],
+                     episode: int, arc_map: ArcMap,
+                     total_episodes: int | None = None) -> list[PlannedSeed]:
+    """A 떡밥 deviation owes a payoff; without one "떡밥이라서" is a free pass."""
+    arc = arc_for_episode(arc_map, episode)
+    due = arc.end_ep if arc and arc.end_ep > episode else episode + 3
+    if total_episodes:
+        due = max(episode, min(due, total_episodes))   # a seed due after the end is unpayable
+    seen = {s.description for s in planted}
+    out = []
+    for d in deviations:
+        if d.reason_kind != "떡밥":
+            continue
+        desc = f"의도된 예외: {d.character} — {d.setting}: {d.reason}"
+        if desc in seen:
+            continue
+        seen.add(desc)
+        out.append(PlannedSeed(
+            proposed_seed_id=f"p{episode}-d{len(out) + 1}", description=desc,
+            magnitude=SeedMagnitude.MINOR, due_by_ep=due))
+    return out
+
+
 def _known_thread(arc_map: ArcMap, seed) -> str:
     """The plan thread a seed claims, or "" — a hallucinated id binds nothing.
 
@@ -523,7 +592,7 @@ def _story_context(*, episode_number: int, profile: GenreProfile,
         # id was never shown and the payoff it demanded was undeclarable.
         seen = {x.seed_id for x in due}
         due = due + [x for x in foreshadow.unpaid_major() if x.seed_id not in seen]
-    cast = ", ".join(canon.characters)
+    cast = _cast_habits(canon)
 
     return dict(
         premise=north_star.premise,
@@ -643,33 +712,37 @@ def plan_episode(
         BeatSheetDraft,
     )
 
+    deviations = _deviations(draft.deviations, is_final)
+    seeds = [
+        PlannedSeed(
+            proposed_seed_id=f"p{episode_number}-{i}",
+            description=s.description,
+            magnitude=_magnitude(s.magnitude),
+            # A MAJOR seed with no deadline is unpayable: due() skips it, so
+            # its id is never shown to the planner, while unpaid_major()
+            # counts it forever — completion_ready() would stay False for the
+            # life of the run. It needs a deadline, and the serial's end is
+            # the honest one: a MAJOR is by definition a thread the story
+            # cannot finish without. The old fallback used the 사이다
+            # cadence, which gave a 30화 serial's premise-level thread a
+            # 7화 deadline (1 + max(1,2)*3) — a number about payoff rhythm
+            # deciding how long the spine may stay open.
+            due_by_ep=_seed_deadline(
+                s.due_by_ep, _magnitude(s.magnitude), episode_number,
+                total_episodes, profile.target_catharsis_cadence,
+                arc_end=_thread_arc_end(arc_map, _known_thread(arc_map, s))),
+            planned_thread_id=_known_thread(arc_map, s),
+        )
+        for i, s in enumerate(draft.seeds_to_plant, 1)
+    ]
+    seeds += _deviation_seeds(deviations, seeds, episode_number, arc_map, total_episodes)
+
     return BeatSheet(
         episode_number=episode_number,
         opening_hook=draft.opening_hook,
         beats=[Beat(text=b.text, beat_type=_beat_type(b.beat_type)) for b in draft.beats],
         the_one_progression=draft.the_one_progression,
-        seeds_to_plant=[
-            PlannedSeed(
-                proposed_seed_id=f"p{episode_number}-{i}",
-                description=s.description,
-                magnitude=_magnitude(s.magnitude),
-                # A MAJOR seed with no deadline is unpayable: due() skips it, so
-                # its id is never shown to the planner, while unpaid_major()
-                # counts it forever — completion_ready() would stay False for the
-                # life of the run. It needs a deadline, and the serial's end is
-                # the honest one: a MAJOR is by definition a thread the story
-                # cannot finish without. The old fallback used the 사이다
-                # cadence, which gave a 30화 serial's premise-level thread a
-                # 7화 deadline (1 + max(1,2)*3) — a number about payoff rhythm
-                # deciding how long the spine may stay open.
-                due_by_ep=_seed_deadline(
-                    s.due_by_ep, _magnitude(s.magnitude), episode_number,
-                    total_episodes, profile.target_catharsis_cadence,
-                    arc_end=_thread_arc_end(arc_map, _known_thread(arc_map, s))),
-                planned_thread_id=_known_thread(arc_map, s),
-            )
-            for i, s in enumerate(draft.seeds_to_plant, 1)
-        ],
+        seeds_to_plant=seeds,
         # only IDs that really exist may be marked paid — a hallucinated id would
         # otherwise silently no-op in the canonicalizer, leaving the 떡밥 open.
         # Normalized first: the prompt renders "[seed-0001]", so a model copying
@@ -680,4 +753,5 @@ def plan_episode(
         length_target=profile.episode_length_target,
         pov=profile.pov,
         entities_present=draft.entities_present,
+        deviations=deviations,
     )

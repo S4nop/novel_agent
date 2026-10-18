@@ -122,6 +122,13 @@ class SeedDraft(BaseModel):
                     "이 화에서 새로 지어낸 떡밥이면 빈 문자열.")
 
 
+class DeviationDraft(BaseModel):
+    character: str = Field(description="설정을 어기는 인물")
+    setting: str = Field(description="어기는 캐논 설정 (외모·습관·말버릇·존대 방식·능력 중 하나, 그대로 인용)")
+    reason_kind: str = Field(description="떡밥(나중에 회수할 단서) | 감정(감정이 격해 습관마저 어긋남) | 기타")
+    reason: str = Field(description="구체적인 이유 한 줄 — 장면에서 독자가 볼 수 있어야 함")
+
+
 class BeatSheetDraft(BaseModel):
     """L3 — one episode's plan."""
     opening_hook: str
@@ -141,6 +148,10 @@ class BeatSheetDraft(BaseModel):
         default_factory=list,
         description="이 화에서 회수하지 않고 한 번 더 건드리는 떡밥의 ID 목록. "
                     "[흔들 때가 된 떡밥]에 표시된 ID를 그대로 쓰세요.")
+    deviations: list[DeviationDraft] = Field(
+        default_factory=list,
+        description="이 화에서 의도적으로 어기는 인물 설정(내부 메모 — 본문에는 드러내지 않는다). "
+                    "없으면 빈 목록, 최대 2건.")
 
 
 # ── Track A continuity (DESIGN §3) ───────────────────────────────────────────
@@ -151,7 +162,8 @@ class ContinuityFindingDraft(BaseModel):
     prose_claim: str = Field(description="그와 어긋나는 본문의 주장 (그대로 인용)")
     severity: str = Field(description="blocker | major 중 하나")
     kind: str = Field(default="canon", description="canon(캐논과 충돌) | earlier(앞선 화와 "
-                                                   "충돌) | internal(이 화 안에서 충돌)")
+                                                   "충돌) | internal(이 화 안에서 충돌) | "
+                                                   "unjustified(선언된 예외인데 본문에 근거가 안 보임)")
     where: str = Field(default="", description="본문에서 문제가 된 짧은 구절")
 
 

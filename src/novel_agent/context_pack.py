@@ -248,6 +248,14 @@ class ContextPackBuilder:
             lines.append(f"{i}. [{beat.beat_type.value}] {beat.text}")
         if bs.seeds_to_pay:
             lines.append("회수할 떡밥: " + ", ".join(bs.seeds_to_pay))
+        if bs.deviations:
+            # The reason has to be on the page: an exception the reader cannot
+            # explain is just a continuity error with a note attached.
+            lines.append("의도된 예외 (설정을 일부러 어기는 부분):")
+            for d in bs.deviations:
+                lines.append(f"- {d.character}: \"{d.setting}\" → {d.reason_kind}: {d.reason}")
+            lines.append("이 이유가 장면 안에서 독자에게 드러나야 합니다. "
+                         "이유 없이 어긋난 것으로 읽히면 안 됩니다.")
         lines.append(f"마무리 절단: {bs.closing_cliffhanger}")
         return "\n".join(lines)
 

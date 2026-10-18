@@ -20,6 +20,7 @@ from novel_agent.schemas import (
     BeatSheetDraft,
     CanonInitDraft,
     CharacterDraft,
+    DeviationDraft,
     GenreProfileDraft,
     GlossaryDraft,
     NorthStarDraft,
@@ -453,3 +454,99 @@ def test_without_a_chosen_direction_the_planner_is_free():
     llm = ScriptedLLM(_bs_draft())
     _plan(llm, episode=2)
     assert "덕배가 먼저 배신한다" not in llm.prompts[-1]
+
+
+# ── intended deviations (의도된 예외) ───────────────────────────────────────
+def _dev(**kw):
+    base = dict(character="홍길동", setting="허참 하며 말끝을 흐린다", reason_kind="감정",
+                reason="첫 패배의 충격으로 말버릇도 나오지 않는다")
+    return DeviationDraft(**{**base, **kw})
+
+
+def test_the_planner_sees_the_habits_it_would_be_breaking():
+    llm = ScriptedLLM(_bs_draft())
+    _plan(llm)
+    sent = llm.prompts[-1]
+    assert "큰 키" in sent and "허참" in sent and "반말" in sent and "능청" in sent
+    assert "존댓말" in sent       # a supporting character's pattern too
+
+
+def test_a_declared_deviation_reaches_the_beat_sheet():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev()])))
+    assert [(d.character, d.setting, d.reason_kind, d.reason) for d in bs.deviations] == [
+        ("홍길동", "허참 하며 말끝을 흐린다", "감정", "첫 패배의 충격으로 말버릇도 나오지 않는다")]
+
+
+def test_a_deviation_missing_its_reason_is_dropped_rather_than_excused():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[
+        _dev(reason="  "), _dev(character=""), _dev(setting=""), _dev()])))
+    assert len(bs.deviations) == 1
+
+
+def test_an_unknown_reason_kind_is_normalised_to_other():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason_kind="그냥")])))
+    assert bs.deviations[0].reason_kind == "기타"
+
+
+def test_only_two_deviations_are_excused_per_episode():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[
+        _dev(setting=f"습관{i}") for i in range(3)])))
+    assert [d.setting for d in bs.deviations] == ["습관0", "습관1"]
+
+
+def test_a_clue_deviation_must_be_paid_off_so_it_is_no_free_pass():
+    bs = _plan(ScriptedLLM(_bs_draft(seed_due=10, deviations=[_dev(reason_kind="떡밥")])),
+               episode=3)
+    seed = next(s for s in bs.seeds_to_plant if s.description.startswith("의도된 예외"))
+    assert seed.description == ("의도된 예외: 홍길동 — 허참 하며 말끝을 흐린다: "
+                                "첫 패배의 충격으로 말버릇도 나오지 않는다")
+    assert seed.magnitude is SeedMagnitude.MINOR
+    assert seed.due_by_ep == 15          # the end of the current arc
+
+
+def test_a_clue_deviation_past_the_last_arc_is_due_three_episodes_later():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason_kind="떡밥")])), episode=20)
+    seed = next(s for s in bs.seeds_to_plant if s.description.startswith("의도된 예외"))
+    assert seed.due_by_ep == 23
+
+
+def test_a_clue_deviation_is_never_due_after_the_serial_ends():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason_kind="떡밥")])),
+               episode=19, total_episodes=20)
+    seed = next(s for s in bs.seeds_to_plant if s.description.startswith("의도된 예외"))
+    assert seed.due_by_ep == 20
+
+
+def test_a_clue_deviation_in_the_final_episode_is_not_excused_as_a_clue():
+    # Nothing can pay a 떡밥 after the last episode, so "떡밥이라서" would be a free pass.
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason_kind="떡밥")])),
+               episode=20, is_final=True, total_episodes=20)
+    assert [d.reason_kind for d in bs.deviations] == ["기타"]
+    assert not any(s.description.startswith("의도된 예외") for s in bs.seeds_to_plant)
+
+
+def test_only_the_first_two_clue_deviations_plant_distinct_seeds():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[
+        _dev(reason_kind="떡밥", setting=f"습관{i}") for i in range(3)])))
+    seeds = [s for s in bs.seeds_to_plant if s.description.startswith("의도된 예외")]
+    assert [s.description.split(" — ")[1].split(":")[0] for s in seeds] == ["습관0", "습관1"]
+    assert len({s.proposed_seed_id for s in seeds}) == 2
+
+
+def test_a_deviation_reason_spanning_lines_is_kept_on_one_line():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason="첫줄\n  둘째줄")])))
+    assert bs.deviations[0].reason == "첫줄 둘째줄"
+
+
+def test_an_emotional_deviation_plants_no_seed():
+    bs = _plan(ScriptedLLM(_bs_draft(deviations=[_dev(reason_kind="감정")])))
+    assert not any(s.description.startswith("의도된 예외") for s in bs.seeds_to_plant)
+
+
+def test_a_clue_deviation_is_not_planted_twice_when_the_planner_already_planted_it():
+    desc = ("의도된 예외: 홍길동 — 허참 하며 말끝을 흐린다: "
+            "첫 패배의 충격으로 말버릇도 나오지 않는다")
+    bs = _plan(ScriptedLLM(_bs_draft(
+        seeds_to_plant=[SeedDraft(description=desc, magnitude="minor", due_by_ep=0)],
+        deviations=[_dev(reason_kind="떡밥")])))
+    assert [s.description for s in bs.seeds_to_plant].count(desc) == 1
