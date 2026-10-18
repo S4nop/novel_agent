@@ -32,7 +32,9 @@ from .artifacts import ArcMap, PendingEpisode
 from .canon_store import CanonStore
 from .canonicalizer import canonicalize_episode, commit_episode_state
 from .context_pack import ContextPackBuilder
-from .continuity import blocks_acceptance, check_continuity, deterministic_findings
+from .continuity import (
+    blocks_acceptance, check_continuity, deterministic_findings, judged_contradictions,
+)
 from .craft import judge_craft, judge_opening_and_ending
 from .drafter import draft_episode
 from .llm import LLM, LLMRefusal, LLMUnavailable, Usage
@@ -183,6 +185,10 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
     # a fade-out ending. Judging after revision would only report the failure.
     is_final = episode >= cfg.target_episodes
     structural = judge_opening_and_ending(llm, draft, is_final=is_final)
+    # Track A on the FIRST draft too, so a contradiction is handed to the
+    # rewrite instead of only rejecting or passing the episode afterwards.
+    summary = store.load_summary()
+    first = check_continuity(llm, draft, beats, canon, summary=summary)
     result = revise_draft(
         llm, draft, pack, target_chars=beats.length_target,
         max_iterations=cfg.revise_iterations, forbidden_terms=cfg.forbidden_terms,
@@ -191,8 +197,12 @@ def _plan_and_write(llm: LLM, store: CanonStore, episode: int, cfg: RunConfig):
         # ...and re-judged on the winner, so a repaired hook actually clears.
         structural_recheck=lambda d: judge_opening_and_ending(llm, d,
                                                               is_final=is_final),
+        review_findings=judged_contradictions(first),
     )
-    continuity = check_continuity(llm, result.draft, beats, canon)
+    # The gate is the verdict on the prose being committed; re-judged only when
+    # the loop actually changed it.
+    continuity = (first if result.draft.prose == draft.prose
+                  else check_continuity(llm, result.draft, beats, canon, summary=summary))
     # Track B is ADVISORY: it reports craft problems for the author and the
     # reviser but never gates, because a subjective judge with blocking power
     # halts an unattended run on an opinion.

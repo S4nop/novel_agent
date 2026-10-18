@@ -412,3 +412,60 @@ def test_a_failed_attempt_is_reported_too(tmp_path):
                config=RunConfig(target_episodes=1, max_consecutive_failures=2),
                on_outcome=ended.append)
     assert [o.committed for o in ended] == [False, False]
+
+
+# ── Track A inside the loop: found → fixed → rechecked ──────────────────────
+REWRITTEN = CLEAN.replace("골목이 조용해졌다.", "골목이 조용했다.", 1)
+
+
+class ContradictionLLM(FakeLLM):
+    """The judge finds a contradiction in the first draft; the rewrite differs.
+    `fixed` decides whether the recheck still finds it."""
+
+    def __init__(self, fixed=True):
+        super().__init__()
+        self.fixed, self.judged, self.texts = fixed, 0, []
+
+    def structured(self, messages, schema):
+        if schema is ContinuityReportDraft:
+            self.judged += 1
+            bad = self.judged == 1 or not self.fixed
+            return ContinuityReportDraft(findings=[ContinuityFindingDraft(
+                canon_fact="왼팔이 의체", prose_claim="오른손 의체", severity="major",
+                kind="canon")] if bad else [])
+        return super().structured(messages, schema)
+
+    def text(self, messages, *, max_tokens=8192):
+        self.texts.append(messages[-1]["content"])
+        return CLEAN if len(self.texts) == 1 else REWRITTEN
+
+
+def test_a_contradiction_the_rewrite_fixes_no_longer_blocks_the_episode(tmp_path):
+    store = _store(tmp_path)
+    llm = ContradictionLLM(fixed=True)
+    report = run_serial(llm, store, config=RunConfig(target_episodes=1, revise_iterations=1))
+    assert report.outcomes[0].committed is True
+    assert any("오른손 의체" in t for t in llm.texts[1:])       # the rewrite was told
+    assert llm.judged == 2                                     # first draft + final
+
+
+def test_a_contradiction_that_survives_the_rewrite_blocks_the_episode(tmp_path):
+    store = _store(tmp_path)
+    report = run_serial(ContradictionLLM(fixed=False), store,
+                        config=RunConfig(target_episodes=1, revise_iterations=1,
+                                         max_consecutive_failures=1))
+    assert report.outcomes[0].committed is False
+    assert store.latest_episode_number() == 0
+
+
+def test_an_episode_with_nothing_to_fix_is_judged_once(tmp_path):
+    """The recheck runs only when the prose actually changed."""
+    class Counting(FakeLLM):
+        judged = 0
+
+        def structured(self, messages, schema):
+            if schema is ContinuityReportDraft:
+                type(self).judged += 1
+            return super().structured(messages, schema)
+    run_serial(Counting(), _store(tmp_path), config=RunConfig(target_episodes=1))
+    assert Counting.judged == 1

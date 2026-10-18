@@ -48,6 +48,11 @@ def length_findings(draft: Draft, target: int) -> list[str]:
     return []
 
 
+# Findings produced by a judge or a continuity rule rather than by the lint —
+# their evidence describes a fault instead of listing words to remove.
+_JUDGED_PREFIXES = ("캐논 위반", "앞뒤 모순", "계획 이탈", "크래프트", "도입 훅", "절단 실패")
+
+
 def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
     """Turn findings into directive edits. Resolves the length↔dialogue conflict
     explicitly: padding with narration is what made an earlier revision worse."""
@@ -78,7 +83,12 @@ def _fix_instructions(violations: list[Violation], length: list[str]) -> str:
         # three clean-store attempts failed on the same rhythm rules with scores
         # going 78 -> 79 -> 74, i.e. the loop was not converging.
         how = v.meta.fix if v.meta else ""
-        if v.evidence:
+        if v.evidence and v.rule.startswith(_JUDGED_PREFIXES):
+            # A judged finding's evidence is a diagnosis ("캐논 'A' ↔ 본문 'B'"),
+            # not a list of words. Phrased as "delete these expressions" it told
+            # the model to delete the canon side of the pair.
+            lines.append(f"{v.rule}: {v.evidence}" + (f" → {how}" if how else ""))
+        elif v.evidence:
             lines.append(f"{v.rule}: 다음 표현을 전부 찾아 삭제하거나 대체 — {v.evidence}"
                          + (f" ({how})" if how else ""))
         else:
@@ -155,6 +165,11 @@ def revise_draft(
     # Re-judges those two edges on the WINNING draft. The frozen list above is
     # what the reviser is told to fix; this is what the gate is told to believe.
     structural_recheck=None,
+    # Contradictions the continuity judge found in the incoming draft. They are
+    # handed to every rewrite; the caller re-judges the final draft, since that
+    # verdict is the gate. Judging only after the loop could reject or pass an
+    # episode but never get a contradiction fixed.
+    review_findings: list[Violation] | None = None,
     max_tokens: int = 32768,
     # Called before each rewrite with (this iteration, the cap). A rewrite is a
     # whole-episode call of several minutes, so a caller showing progress (or
@@ -162,8 +177,17 @@ def revise_draft(
     on_iteration=None,
 ) -> RevisionResult:
     """Repair the draft against lint + length findings. Returns the best version seen."""
+    review_findings = list(review_findings or [])
+
+    def fitness(d: Draft, rewritten: bool) -> tuple:
+        blockers, gates, score = _fitness(d, target_chars, forbidden_terms, extra_findings)
+        # Keep-best cannot see a contradiction, so on a style tie it kept the
+        # original — the one draft KNOWN to contain it. Below the gate tiers, a
+        # rewrite that was told about the contradiction beats that draft.
+        return (blockers, gates, int(rewritten and bool(review_findings)), score)
+
     best = draft
-    best_fit = _fitness(draft, target_chars, forbidden_terms, extra_findings)
+    best_fit = fitness(draft, False)
     iterations = 0
 
     for _ in range(max_iterations):
@@ -173,6 +197,7 @@ def revise_draft(
             violations = violations + list(extra_findings(best))
         if structural_findings:
             violations = violations + list(structural_findings)
+        violations = violations + review_findings
         length = length_findings(best, target_chars)
         if not violations and not length:
             break
@@ -205,7 +230,7 @@ def revise_draft(
             fact_requests=requests or draft.fact_requests,
         )
         # keep-best: an edit that makes things worse is discarded
-        fit = _fitness(candidate, target_chars, forbidden_terms, extra_findings)
+        fit = fitness(candidate, True)
         if fit > best_fit or (
             fit == best_fit
             and abs(candidate.char_count - target_chars) < abs(best.char_count - target_chars)

@@ -210,7 +210,8 @@ def test_findings_are_ordered_worst_first():
         ContinuityFindingDraft(canon_fact="a", prose_claim="b", severity="minor"),
         ContinuityFindingDraft(canon_fact="c", prose_claim="d", severity="blocker")]))
     vs = check_continuity(judge, _draft("x"), _beats(), Canon())
-    assert [v.severity for v in vs] == ["blocker", "minor"]
+    # minor is no longer a tier for a contradiction — it reads as major
+    assert [v.severity for v in vs] == ["blocker", "major"]
 
 
 def test_every_continuity_rule_explains_itself_in_the_ui():
@@ -264,3 +265,75 @@ def test_real_drift_is_still_caught_when_the_canonical_form_is_annotated():
     vs = deterministic_findings(_draft("천유결계가 흔들렸다."), _beats(), canon)
     v = next(x for x in vs if x.rule == RULE_GLOSSARY_DRIFT)
     assert "天流結界" in v.evidence and "(" not in v.evidence
+
+
+# ── 앞뒤가 맞지 않는 건 모두 major 이상 (author's rule, 2026-10-18) ───────────
+# A live 4화 committed with "노준서가 빈손으로 앉아 있었다" against a canon card
+# that says he never puts his terminal down: the judge filed it minor, and minor
+# neither blocked nor reached the reviser.
+
+def _judged(severity="minor", kind="canon", fact="손에서 단말기를 놓지 않는다",
+            claim="빈손으로 앉아 있었다"):
+    return StubJudge(ContinuityReportDraft(findings=[ContinuityFindingDraft(
+        canon_fact=fact, prose_claim=claim, severity=severity, kind=kind, where=claim)]))
+
+
+def test_a_contradiction_the_judge_files_as_minor_is_reported_as_major():
+    vs = check_continuity(_judged("minor"), _draft("노준서가 빈손으로 앉아 있었다."), _beats(), Canon())
+    assert [v.severity for v in vs if v.rule == RULE_CANON_CONTRADICTION] == ["major"]
+
+
+def test_a_story_breaking_contradiction_stays_a_blocker():
+    vs = check_continuity(_judged("blocker"), _draft("노준서가 빈손으로 앉아 있었다."), _beats(), Canon())
+    assert [v.severity for v in vs if v.rule == RULE_CANON_CONTRADICTION] == ["blocker"]
+
+
+def test_a_major_contradiction_refuses_acceptance():
+    """Once the reviser has had its chance, a contradiction still standing is
+    not a matter of taste."""
+    vs = check_continuity(_judged("major"), _draft("노준서가 빈손으로 앉아 있었다."), _beats(), Canon())
+    assert blocks_acceptance(vs) is True
+
+
+def test_a_planned_character_missing_is_still_only_a_note():
+    """Plan versus result is not the story contradicting itself."""
+    vs = deterministic_findings(_draft("케이타."), _beats(["케이타", "없는사람"]), Canon())
+    assert [v.severity for v in vs] == ["minor"]
+    assert blocks_acceptance(vs) is False
+
+
+# ── scope: earlier episodes and the episode itself, not only canon ──────────
+def test_a_contradiction_inside_the_episode_is_reported():
+    """'같은 날 처리됐다' then '석 달째 일을 못 나갔다' — no canon fact is involved,
+    so a canon-only check could never see it."""
+    from novel_agent.continuity import RULE_INTERNAL_CONTRADICTION
+    vs = check_continuity(_judged("minor", "internal", "같은 날 같은 처리 번호로 등급이 내려갔다",
+                                  "석 달째 일을 못 나갔다"),
+                          _draft("..."), _beats(), Canon())
+    v = next(x for x in vs if x.rule == RULE_INTERNAL_CONTRADICTION)
+    assert v.severity == "major"
+    assert "석 달째" in v.evidence
+
+
+def test_a_contradiction_with_an_earlier_episode_is_reported():
+    from novel_agent.continuity import RULE_STORY_CONTRADICTION
+    vs = check_continuity(_judged("major", "earlier", "2화: 보증금 잔여분은 동결된다",
+                                  "동결분 해제, 지급 예정"),
+                          _draft("..."), _beats(), Canon())
+    assert any(v.rule == RULE_STORY_CONTRADICTION for v in vs)
+
+
+def test_the_judge_is_shown_the_story_so_far():
+    from novel_agent.artifacts import Summary
+    judge = StubJudge(ContinuityReportDraft(findings=[]))
+    check_continuity(judge, _draft("본문"), _beats(), Canon(),
+                     summary=Summary(story_so_far="2화: 보증금 잔여분이 동결된다"))
+    assert "2화: 보증금 잔여분이 동결된다" in judge.prompts[-1]
+
+
+def test_the_new_rules_explain_themselves_in_the_ui():
+    from novel_agent.continuity import RULE_INTERNAL_CONTRADICTION, RULE_STORY_CONTRADICTION
+    from novel_agent.style import rule_meta
+    for r in (RULE_INTERNAL_CONTRADICTION, RULE_STORY_CONTRADICTION):
+        m = rule_meta(r)
+        assert m and m.why and m.fix, r

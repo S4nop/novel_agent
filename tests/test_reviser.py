@@ -324,3 +324,58 @@ def test_the_revise_call_reuses_the_drafters_cached_prefix():
     draft_system = pack.to_messages()[0]["content"]
     assert revise_system == draft_system
     assert pack.cached_prefix not in captured[0][1]["content"]
+
+
+# ── contradictions found in the first draft reach the rewrite ────────────────
+def _contradiction():
+    from novel_agent.continuity import RULE_CANON_CONTRADICTION
+    from novel_agent.style import Violation
+    return Violation(rule=RULE_CANON_CONTRADICTION, severity="major", count=1, limit="0건",
+                     limit_num=0, evidence="캐논 '왼팔이 의체' ↔ 본문 '오른손 의체'")
+
+
+class _Capture:
+    def __init__(self, *outs):
+        self.outs, self.prompts = list(outs), []
+
+    def text(self, messages, *, max_tokens=8192):
+        self.prompts.append(messages[-1]["content"])
+        return self.outs.pop(0) if self.outs else CLEAN
+
+    def structured(self, messages, schema):  # pragma: no cover
+        raise NotImplementedError
+
+
+def test_a_contradiction_found_in_the_first_draft_is_handed_to_the_rewrite():
+    """It used to be judged after the loop had finished, so it could reject an
+    episode or pass it, but never get it fixed."""
+    llm = _Capture(LONGER)
+    revise_draft(llm, _draft(CLEAN), _pack(), target_chars=len(LONGER), max_iterations=1,
+                 review_findings=[_contradiction()])
+    sent = llm.prompts[0]
+    assert "오른손 의체" in sent
+    assert "본문을 캐논에 맞추세요" in sent
+
+
+def test_a_contradiction_is_not_phrased_as_expressions_to_delete():
+    """"다음 표현을 전부 찾아 삭제" is right for a banned word and backwards for a
+    contradiction — it told the model to delete the canon side of the pair."""
+    from novel_agent.reviser import _fix_instructions
+    text = _fix_instructions([_contradiction()], [])
+    assert "삭제" not in text
+
+
+def test_a_banned_expression_is_still_listed_for_removal():
+    from novel_agent.reviser import _fix_instructions
+    from novel_agent.style import Violation
+    v = Violation(rule="강도부사(지문)", severity="major", count=2, limit="0", evidence="정말, 너무")
+    assert "삭제" in _fix_instructions([v], [])
+
+
+def test_the_rewrite_is_kept_over_the_draft_the_contradiction_was_found_in():
+    """Keep-best cannot see a contradiction, so on a style tie it kept the
+    original — the one draft known to contain it."""
+    rewrite = CLEAN.replace("골목이 조용해졌다.", "골목이 조용했다.", 1)
+    result = revise_draft(_Capture(rewrite), _draft(CLEAN), _pack(), target_chars=len(CLEAN),
+                          max_iterations=1, review_findings=[_contradiction()])
+    assert result.draft.prose == rewrite

@@ -145,10 +145,13 @@ class BeatSheetDraft(BaseModel):
 
 # ── Track A continuity (DESIGN §3) ───────────────────────────────────────────
 class ContinuityFindingDraft(BaseModel):
-    """One contradiction between the prose and canon. Shallow by design."""
-    canon_fact: str = Field(description="캐논에 적힌 사실 (그대로 인용)")
-    prose_claim: str = Field(description="본문이 주장하는 내용 (그대로 인용)")
-    severity: str = Field(description="blocker | major | minor 중 하나")
+    """One contradiction in the story. Shallow by design."""
+    canon_fact: str = Field(description="이미 확정된 사실 — 캐논, 앞선 화, 또는 이 화의 "
+                                        "앞부분에서 (그대로 인용)")
+    prose_claim: str = Field(description="그와 어긋나는 본문의 주장 (그대로 인용)")
+    severity: str = Field(description="blocker | major 중 하나")
+    kind: str = Field(default="canon", description="canon(캐논과 충돌) | earlier(앞선 화와 "
+                                                   "충돌) | internal(이 화 안에서 충돌)")
     where: str = Field(default="", description="본문에서 문제가 된 짧은 구절")
 
 

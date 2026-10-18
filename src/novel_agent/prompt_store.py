@@ -48,7 +48,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
                        "length_target", "style_rules"),
     "revise_instruction": ("prefix", "suffix", "findings", "prose"),
     "continuity_system": (),
-    "continuity_check": ("canon", "episode_number", "prose"),
+    "continuity_check": ("canon", "episode_number", "prose", "story_so_far"),
     "canon_extract_system": (),
     "canon_extract": ("canon", "episode_number", "prose"),
     "craft_system": (),

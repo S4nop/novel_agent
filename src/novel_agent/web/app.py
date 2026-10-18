@@ -26,7 +26,9 @@ from ..artifacts import Draft, Summary
 from . import jobs
 from ..canon_store import CanonStore
 from ..canonicalizer import canonicalize_episode, commit_episode_state
-from ..continuity import blocks_acceptance, check_continuity, deterministic_findings
+from ..continuity import (
+    blocks_acceptance, check_continuity, deterministic_findings, judged_contradictions,
+)
 from ..craft import judge_craft, judge_opening_and_ending
 from ..config import KNOWN_BASE_URLS, load_settings
 from ..context_pack import ContextPackBuilder
@@ -619,8 +621,13 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
         forbidden = _forbidden(state, profile)
         ctx.stage("draft", f"{n}화 집필")
         draft = draft_episode(llm, pack, max_tokens=32768)
-        ctx.stage("judge", "도입·절단 판정")
+        ctx.stage("judge", "도입·절단·연속성 판정")
         structural = judge_opening_and_ending(llm, draft)
+        # Track A on the first draft, handed to the rewrite — judging only
+        # after the loop could reject or pass an episode, never fix it.
+        summary = store.load_summary()
+        first_draft = draft
+        first_cont = check_continuity(llm, draft, beats, canon, summary=summary)
         first = style_score(draft.prose, target_chars=beats.length_target,
                             forbidden_terms=forbidden)
 
@@ -638,7 +645,8 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
                                       d, beats, canon),
                                   structural_findings=structural,
                                   structural_recheck=lambda d:
-                                      judge_opening_and_ending(llm, d))
+                                      judge_opening_and_ending(llm, d),
+                                  review_findings=judged_contradictions(first_cont))
         draft = result.draft
 
         # Track A, full pass — one judge call on the final draft. The drafter
@@ -646,7 +654,8 @@ def _write_episode(pid: str, body: DraftIn, ctx: jobs.JobContext) -> dict:
         # so this is the only thing standing between an unattended run and
         # accumulating canon damage.
         ctx.stage("judge", "연속성·크래프트 판정")
-        continuity = check_continuity(llm, draft, beats, canon)
+        continuity = (first_cont if draft.prose == first_draft.prose
+                      else check_continuity(llm, draft, beats, canon, summary=summary))
         # Track B — advisory, never gates (DESIGN §3)
         # The structural half must be the verdict on the prose the author is
         # about to read — result.structural when a rewrite happened, otherwise

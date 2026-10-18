@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 
-from .artifacts import BeatSheet, Canon, Draft
+from .artifacts import BeatSheet, Canon, Draft, Summary
 from .llm import LLM
 from .prompts import render
 from .schemas import ContinuityReportDraft
@@ -41,6 +41,14 @@ RULE_RETIRED_ACTOR = "캐논 위반: 퇴장한 인물 등장"
 RULE_GLOSSARY_DRIFT = "캐논 위반: 용어 표기 흔들림"
 RULE_PLANNED_ABSENT = "계획 이탈: 예정 인물 부재"
 RULE_CANON_CONTRADICTION = "캐논 위반: 사실 모순"
+# The story contradicting itself, where no canon fact is involved: an earlier
+# episode says one thing, or this episode says two. A canon-only check could
+# never see either — a live 4화 committed with "같은 날 같은 처리 번호" next to
+# "석 달째 일을 못 나갔다".
+RULE_STORY_CONTRADICTION = "앞뒤 모순: 앞선 화와 충돌"
+RULE_INTERNAL_CONTRADICTION = "앞뒤 모순: 이 화 안에서 충돌"
+_KIND_RULES = {"canon": RULE_CANON_CONTRADICTION, "earlier": RULE_STORY_CONTRADICTION,
+               "internal": RULE_INTERNAL_CONTRADICTION}
 
 
 # A canonical_form is the exact string to write. Models keep returning it with a
@@ -127,8 +135,11 @@ def _canon_digest(canon: Canon) -> str:
 
 
 def _severity(raw: str) -> str:
-    s = (raw or "").strip().lower()
-    return s if s in {"blocker", "major", "minor"} else "major"
+    """blocker, or major. The author's rule (2026-10-18): anything where the
+    story does not hold together is at least major — a live 4화 committed with
+    a contradiction the judge had filed as minor, which neither blocked nor
+    reached the reviser."""
+    return "blocker" if (raw or "").strip().lower() == "blocker" else "major"
 
 
 def check_continuity(
@@ -137,6 +148,7 @@ def check_continuity(
     beats: BeatSheet,
     canon: Canon,
     *,
+    summary: Summary | None = None,
     max_findings: int = 12,
 ) -> list[Violation]:
     """Deterministic rules + a blind LLM claim-check. Returns every finding.
@@ -154,6 +166,8 @@ def check_continuity(
                 {"role": "user", "content": render(
                     "continuity_check",
                     canon=_canon_digest(canon),
+                    story_so_far=(summary.story_so_far if summary and summary.story_so_far
+                                  else "없음 — 첫 화이거나 기록이 없습니다"),
                     episode_number=draft.episode_number,
                     prose=draft.prose)},
             ],
@@ -165,17 +179,32 @@ def check_continuity(
     for f in (report.findings or [])[:max_findings]:
         if not (f.canon_fact and f.prose_claim):
             continue
+        kind = (f.kind or "canon").strip().lower()
+        label = {"earlier": "앞선 화", "internal": "앞부분"}.get(kind, "캐논")
         findings.append(Violation(
-            rule=RULE_CANON_CONTRADICTION, severity=_severity(f.severity),
-            count=1, limit="0건", limit_num=0,
-            evidence=f"캐논 '{f.canon_fact}' ↔ 본문 '{f.prose_claim}'"
+            rule=_KIND_RULES.get(kind, RULE_CANON_CONTRADICTION),
+            severity=_severity(f.severity), count=1, limit="0건", limit_num=0,
+            evidence=f"{label} '{f.canon_fact}' ↔ 본문 '{f.prose_claim}'"
                      + (f" ({f.where})" if f.where else "")))
 
     order = {"blocker": 0, "major": 1, "minor": 2}
     return sorted(findings, key=lambda v: order[v.severity])
 
 
+def judged_contradictions(findings: list[Violation]) -> list[Violation]:
+    """The judge's findings only. The deterministic rules already run inside
+    the revise loop on every candidate, so passing them again would repeat
+    them in the rewrite instructions."""
+    judged = set(_KIND_RULES.values())
+    return [v for v in findings if v.rule in judged]
+
+
 def blocks_acceptance(findings: list[Violation]) -> bool:
-    """Track A is a HARD gate (DESIGN §3): a continuity blocker cannot be
-    style-scored away, so acceptance is refused regardless of the prose score."""
-    return any(v.severity == "blocker" for v in findings)
+    """Track A is a HARD gate (DESIGN §3): a contradiction cannot be
+    style-scored away, so acceptance is refused regardless of the prose score.
+
+    Major blocks too. That is only fair because the reviser now gets every
+    contradiction found in the first draft and the verdict is taken on the
+    final one — what is still standing had its chance to be fixed. Minor
+    (plan versus result) is a note, not a contradiction."""
+    return any(v.severity in ("blocker", "major") for v in findings)
